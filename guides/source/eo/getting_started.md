@@ -1,17 +1,18 @@
 **DO NOT READ THIS FILE ON GITHUB, GUIDES ARE PUBLISHED ON http://guides.rubyonrails.org.**
+**NE LEGU TIUN DOSIERON AL GITHUB, LERNILOJ ESTAS ELDONITAJ AL http://guides.rubyonrails.org.**
 
-Getting Started with Rails
-==========================
+Ekkomenci kun *Rails*
+===================
 
-This guide covers getting up and running with Ruby on Rails.
+Tiu lernilo traktas pri leviĝi kaj ruliĝi kun *Ruby on Rails* (Rubeno sur Reloj).
 
-After reading this guide, you will know:
+Post la legado de tiu lernilo, vi scios:
 
-* How to install Rails, create a new Rails application, and connect your
-  application to a database.
-* The general layout of a Rails application.
-* The basic principles of MVC (Model, View, Controller) and RESTful design.
+* kiel instali *Rails*, krei novan *Rails*-an aplikaĵon, kaj konekti vian aplikaĵon al datenbazo
+* la generala aranĝo de *Rails*-aj aplikaôj
+* la baza principoj de  MVR (Modelo-Vidigilo-Regilo) kaj skemo de transsendo laŭ prezenta stato (REST)
 * How to quickly generate the starting pieces of a Rails application.
+* kiel rapide generi startantajn pecojn de Rails-a aplikaĵo. 
 
 --------------------------------------------------------------------------------
 
