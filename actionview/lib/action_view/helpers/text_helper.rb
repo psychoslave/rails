@@ -1,9 +1,15 @@
+# frozen_string_literal: true
+
 require "active_support/core_ext/string/filters"
+require "active_support/core_ext/string/access"
 require "active_support/core_ext/array/extract_options"
+require "action_view/helpers/sanitize_helper"
+require "action_view/helpers/tag_helper"
+require "action_view/helpers/output_safety_helper"
 
 module ActionView
   # = Action View Text Helpers
-  module Helpers #:nodoc:
+  module Helpers # :nodoc:
     # The TextHelper module provides a set of methods for filtering, formatting
     # and transforming strings, which can reduce the amount of inline Ruby code in
     # your views. These helper methods extend Action View making them callable
@@ -11,9 +17,9 @@ module ActionView
     #
     # ==== Sanitization
     #
-    # Most text helpers by default sanitize the given content, but do not escape it.
-    # This means HTML tags will appear in the page but all malicious code will be removed.
-    # Let's look at some examples using the +simple_format+ method:
+    # Most text helpers that generate HTML output sanitize the given input by default,
+    # but do not escape it. This means HTML tags will appear in the page but all malicious
+    # code will be removed. Let's look at some examples using the +simple_format+ method:
     #
     #   simple_format('<a href="http://example.com/">Example</a>')
     #   # => "<p><a href=\"http://example.com/\">Example</a></p>"
@@ -103,7 +109,7 @@ module ActionView
       # Highlights one or more +phrases+ everywhere in +text+ by inserting it into
       # a <tt>:highlighter</tt> string. The highlighter can be specialized by passing <tt>:highlighter</tt>
       # as a single-quoted string with <tt>\1</tt> where the phrase is to be inserted (defaults to
-      # '<mark>\1</mark>') or passing a block that receives each matched term. By default +text+
+      # <tt><mark>\1</mark></tt>) or passing a block that receives each matched term. By default +text+
       # is sanitized to prevent possible XSS attacks. If the input is trustworthy, passing false
       # for <tt>:sanitize</tt> will turn sanitizing off.
       #
@@ -126,8 +132,8 @@ module ActionView
       #   # => You searched for: <a href="search?q=rails">rails</a>
       #
       #   highlight('<a href="javascript:alert(\'no!\')">ruby</a> on rails', 'rails', sanitize: false)
-      #   # => "<a>ruby</a> on <mark>rails</mark>"
-      def highlight(text, phrases, options = {})
+      #   # => <a href="javascript:alert('no!')">ruby</a> on <mark>rails</mark>
+      def highlight(text, phrases, options = {}, &block)
         text = sanitize(text) if options.fetch(:sanitize, true)
 
         if text.blank? || phrases.blank?
@@ -138,7 +144,7 @@ module ActionView
           end.join("|")
 
           if block_given?
-            text.gsub(/(#{match})(?![^<]*?>)/i) { |found| yield found }
+            text.gsub(/(#{match})(?![^<]*?>)/i, &block)
           else
             highlighter = options.fetch(:highlighter, '<mark>\1</mark>')
             text.gsub(/(#{match})(?![^<]*?>)/i, highlighter)
@@ -186,7 +192,7 @@ module ActionView
 
         unless separator.empty?
           text.split(separator).each do |value|
-            if value.match(regex)
+            if value.match?(regex)
               phrase = value
               break
             end
@@ -226,7 +232,7 @@ module ActionView
       #   pluralize(2, 'Person', locale: :de)
       #   # => 2 Personen
       def pluralize(count, singular, plural_arg = nil, plural: plural_arg, locale: I18n.locale)
-        word = if (count == 1 || count =~ /^1(\.0+)?$/)
+        word = if count == 1 || count.to_s.match?(/^1(\.0+)?$/)
           singular
         else
           plural || singular.pluralize(locale)
@@ -257,7 +263,7 @@ module ActionView
       #   # => Once\r\nupon\r\na\r\ntime
       def word_wrap(text, line_width: 80, break_sequence: "\n")
         text.split("\n").collect! do |line|
-          line.length > line_width ? line.gsub(/(.{1,#{line_width}})(\s+|$)/, "\\1#{break_sequence}").strip : line
+          line.length > line_width ? line.gsub(/(.{1,#{line_width}})(\s+|$)/, "\\1#{break_sequence}").rstrip : line
         end * break_sequence
       end
 
@@ -401,7 +407,7 @@ module ActionView
         cycle.reset if cycle
       end
 
-      class Cycle #:nodoc:
+      class Cycle # :nodoc:
         attr_reader :values
 
         def initialize(first_value, *values)
@@ -420,11 +426,10 @@ module ActionView
         def to_s
           value = @values[@index].to_s
           @index = next_index
-          return value
+          value
         end
 
         private
-
           def next_index
             step_index(1)
           end
@@ -444,7 +449,7 @@ module ActionView
         # uses an instance variable of ActionView::Base.
         def get_cycle(name)
           @_cycles = Hash.new unless defined?(@_cycles)
-          return @_cycles[name]
+          @_cycles[name]
         end
 
         def set_cycle(name, cycle_object)
@@ -466,18 +471,25 @@ module ActionView
           radius   = options.fetch(:radius, 100)
           omission = options.fetch(:omission, "...")
 
-          part = part.split(separator)
-          part.delete("")
-          affix = part.size > radius ? omission : ""
-
-          part = if part_position == :first
-            drop_index = [part.length - radius, 0].max
-            part.drop(drop_index)
-          else
-            part.first(radius)
+          if separator != ""
+            part = part.split(separator)
+            part.delete("")
           end
 
-          return affix, part.join(separator)
+          affix = part.length > radius ? omission : ""
+
+          part =
+            if part_position == :first
+              part.last(radius)
+            else
+              part.first(radius)
+            end
+
+          if separator != ""
+            part = part.join(separator)
+          end
+
+          return affix, part
         end
     end
   end

@@ -1,21 +1,27 @@
+# frozen_string_literal: true
+
 require "redcarpet"
 require "nokogiri"
 require "rails_guides/markdown/renderer"
+require "rails-html-sanitizer"
 
 module RailsGuides
   class Markdown
-    def initialize(view, layout)
-      @view = view
-      @layout = layout
+    def initialize(view:, layout:, edge:, version:)
+      @view          = view
+      @layout        = layout
+      @edge          = edge
+      @version       = version
       @index_counter = Hash.new(0)
-      @raw_header = ""
-      @node_ids = {}
+      @raw_header    = ""
+      @node_ids      = {}
     end
 
     def render(body)
       @raw_body = body
       extract_raw_header_and_body
       generate_header
+      generate_description
       generate_title
       generate_body
       generate_structure
@@ -24,7 +30,6 @@ module RailsGuides
     end
 
     private
-
       def dom_id(nodes)
         dom_id = dom_id_text(nodes.last.text)
 
@@ -60,12 +65,13 @@ module RailsGuides
           autolink: true,
           strikethrough: true,
           superscript: true,
-          tables: true)
+          tables: true
+        )
       end
 
       def extract_raw_header_and_body
-        if @raw_body =~ /^\-{40,}$/
-          @raw_header, _, @raw_body = @raw_body.partition(/^\-{40,}$/).map(&:strip)
+        if /^-{40,}$/.match?(@raw_body)
+          @raw_header, _, @raw_body = @raw_body.partition(/^-{40,}$/).map(&:strip)
         end
       end
 
@@ -77,6 +83,11 @@ module RailsGuides
         @header = engine.render(@raw_header).html_safe
       end
 
+      def generate_description
+        sanitizer = Rails::Html::FullSanitizer.new
+        @description = sanitizer.sanitize(@header).squish
+      end
+
       def generate_structure
         @headings_for_index = []
         if @body.present?
@@ -84,7 +95,7 @@ module RailsGuides
             hierarchy = []
 
             doc.children.each do |node|
-              if node.name =~ /^h[3-6]$/
+              if /^h[3-6]$/.match?(node.name)
                 case node.name
                 when "h3"
                   hierarchy = [node]
@@ -98,9 +109,13 @@ module RailsGuides
                   hierarchy = hierarchy[0, 3] + [node]
                 end
 
-                node[:id] = dom_id(hierarchy)
+                node[:id] = dom_id(hierarchy) unless node[:id]
                 node.inner_html = "#{node_index(hierarchy)} #{node.inner_html}"
               end
+            end
+
+            doc.css("h3, h4, h5, h6").each do |node|
+              node.inner_html = "<a class='anchorlink' href='##{node[:id]}'>#{node.inner_html}</a>"
             end
           end.to_html
         end
@@ -156,6 +171,7 @@ module RailsGuides
 
       def render_page
         @view.content_for(:header_section) { @header }
+        @view.content_for(:description) { @description }
         @view.content_for(:page_title) { @title }
         @view.content_for(:index_section) { @index }
         @view.render(layout: @layout, html: @body.html_safe)

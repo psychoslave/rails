@@ -1,4 +1,6 @@
-require "abstract_unit"
+# frozen_string_literal: true
+
+require_relative "../../abstract_unit"
 require "active_support/core_ext/digest/uuid"
 
 class DigestUUIDExt < ActiveSupport::TestCase
@@ -18,7 +20,7 @@ class DigestUUIDExt < ActiveSupport::TestCase
 
   def test_invalid_hash_class
     assert_raise ArgumentError do
-      Digest::UUID.uuid_from_hash(Digest::SHA2, Digest::UUID::OID_NAMESPACE, "1.2.3")
+      Digest::UUID.uuid_from_hash(OpenSSL::Digest::SHA256, Digest::UUID::OID_NAMESPACE, "1.2.3")
     end
   end
 end

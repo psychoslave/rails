@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "active_model/type/helpers"
 require "active_model/type/value"
 
@@ -21,22 +23,19 @@ module ActiveModel
 
     class << self
       attr_accessor :registry # :nodoc:
-      delegate :add_modifier, to: :registry
 
       # Add a new type to the registry, allowing it to be referenced as a
-      # symbol by ActiveRecord::Attributes::ClassMethods#attribute.  If your
-      # type is only meant to be used with a specific database adapter, you can
-      # do so by passing +adapter: :postgresql+. If your type has the same
-      # name as a native type for the current adapter, an exception will be
-      # raised unless you specify an +:override+ option. +override: true+ will
-      # cause your type to be used instead of the native type. +override:
-      # false+ will cause the native type to be used over yours if one exists.
-      def register(type_name, klass = nil, **options, &block)
-        registry.register(type_name, klass, **options, &block)
+      # symbol by {attribute}[rdoc-ref:Attributes::ClassMethods#attribute].
+      def register(type_name, klass = nil, &block)
+        registry.register(type_name, klass, &block)
       end
 
-      def lookup(*args, **kwargs) # :nodoc:
-        registry.lookup(*args, **kwargs)
+      def lookup(...) # :nodoc:
+        registry.lookup(...)
+      end
+
+      def default_value # :nodoc:
+        @default_value ||= Value.new
       end
     end
 

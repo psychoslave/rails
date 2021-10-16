@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "active_job"
 
 module ActionMailer
@@ -10,9 +12,18 @@ module ActionMailer
 
     rescue_from StandardError, with: :handle_exception_with_mailer_class
 
-    def perform(mailer, mail_method, delivery_method, *args) #:nodoc:
+    before_perform do
+      ActiveSupport::Deprecation.warn <<~MSG.squish
+        Sending mail with DeliveryJob and Parameterized::DeliveryJob
+        is deprecated and will be removed in Rails 7.0.
+        Please use MailDeliveryJob instead.
+      MSG
+    end
+
+    def perform(mailer, mail_method, delivery_method, *args) # :nodoc:
       mailer.constantize.public_send(mail_method, *args).send(delivery_method)
     end
+    ruby2_keywords(:perform)
 
     private
       # "Deserialize" the mailer class name by hand in case another argument

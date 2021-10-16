@@ -1,4 +1,7 @@
+# frozen_string_literal: true
+
 require "cases/helper"
+require "support/connection_helper"
 require "models/book"
 require "models/post"
 require "models/author"
@@ -8,6 +11,7 @@ module ActiveRecord
   class AdapterTest < ActiveRecord::TestCase
     def setup
       @connection = ActiveRecord::Base.connection
+      @connection.materialize_transactions
     end
 
     ##
@@ -18,7 +22,7 @@ module ActiveRecord
         b = Book.create(name: "my \x00 book")
         b.reload
         assert_equal "my \x00 book", b.name
-        b.update_attributes(name: "my other \x00 book")
+        b.update(name: "my other \x00 book")
         b.reload
         assert_equal "my other \x00 book", b.name
       end
@@ -28,6 +32,16 @@ module ActiveRecord
       Book.create(id: 0)
       assert_equal 0, Book.find(0).id
       assert_nothing_raised { Book.destroy(0) }
+    end
+
+    def test_valid_column
+      @connection.native_database_types.each_key do |type|
+        assert @connection.valid_type?(type)
+      end
+    end
+
+    def test_invalid_column
+      assert_not @connection.valid_type?(:foobar)
     end
 
     def test_tables
@@ -66,13 +80,13 @@ module ActiveRecord
       idx_name = "accounts_idx"
 
       indexes = @connection.indexes("accounts")
-      assert indexes.empty?
+      assert_empty indexes
 
       @connection.add_index :accounts, :firm_id, name: idx_name
       indexes = @connection.indexes("accounts")
       assert_equal "accounts", indexes.first.table
       assert_equal idx_name, indexes.first.name
-      assert !indexes.first.unique
+      assert_not indexes.first.unique
       assert_equal ["firm_id"], indexes.first.columns
     ensure
       @connection.remove_index(:accounts, name: idx_name) rescue nil
@@ -89,10 +103,26 @@ module ActiveRecord
       @connection.remove_index(:accounts, name: index_name)
     end
 
+    def test_remove_index_when_name_and_wrong_column_name_specified_positional_argument
+      index_name = "accounts_idx"
+
+      @connection.add_index :accounts, :firm_id, name: index_name
+      assert_raises ArgumentError do
+        @connection.remove_index :accounts, :wrong_column_name, name: index_name
+      end
+    ensure
+      @connection.remove_index(:accounts, name: index_name)
+    end
+
     def test_current_database
       if @connection.respond_to?(:current_database)
-        assert_equal ARTest.connection_config["arunit"]["database"], @connection.current_database
+        assert_equal ARTest.test_configuration_hashes["arunit"]["database"], @connection.current_database
       end
+    end
+
+    def test_exec_query_returns_an_empty_result
+      result = @connection.exec_query "INSERT INTO subscribers(nick) VALUES('me')"
+      assert_instance_of(ActiveRecord::Result, result)
     end
 
     if current_adapter?(:Mysql2Adapter)
@@ -113,19 +143,18 @@ module ActiveRecord
       end
 
       def test_not_specifying_database_name_for_cross_database_selects
-        begin
-          assert_nothing_raised do
-            ActiveRecord::Base.establish_connection(ActiveRecord::Base.configurations["arunit"].except(:database))
+        assert_nothing_raised do
+          db_config = ActiveRecord::Base.configurations.configs_for(env_name: "arunit", name: "primary")
+          ActiveRecord::Base.establish_connection(db_config.configuration_hash.except(:database))
 
-            config = ARTest.connection_config
-            ActiveRecord::Base.connection.execute(
-              "SELECT #{config['arunit']['database']}.pirates.*, #{config['arunit2']['database']}.courses.* " \
-              "FROM #{config['arunit']['database']}.pirates, #{config['arunit2']['database']}.courses"
-            )
-          end
-        ensure
-          ActiveRecord::Base.establish_connection :arunit
+          config = ARTest.test_configuration_hashes
+          ActiveRecord::Base.connection.execute(
+            "SELECT #{config['arunit']['database']}.pirates.*, #{config['arunit2']['database']}.courses.* " \
+            "FROM #{config['arunit']['database']}.pirates, #{config['arunit2']['database']}.courses"
+          )
         end
+      ensure
+        ActiveRecord::Base.establish_connection :arunit
       end
     end
 
@@ -143,26 +172,6 @@ module ActiveRecord
       class << @connection
         remove_method :table_alias_length
         alias_method :table_alias_length, :old_table_alias_length
-      end
-    end
-
-    # test resetting sequences in odd tables in PostgreSQL
-    if ActiveRecord::Base.connection.respond_to?(:reset_pk_sequence!)
-      require "models/movie"
-      require "models/subscriber"
-
-      def test_reset_empty_table_with_custom_pk
-        Movie.delete_all
-        Movie.connection.reset_pk_sequence! "movies"
-        assert_equal 1, Movie.create(name: "fight club").id
-      end
-
-      def test_reset_table_with_non_integer_pk
-        Subscriber.delete_all
-        Subscriber.connection.reset_pk_sequence! "subscribers"
-        sub = Subscriber.new(name: "robert drake")
-        sub.id = "bob drake"
-        assert_nothing_raised { sub.save! }
       end
     end
 
@@ -194,11 +203,34 @@ module ActiveRecord
 
       def test_numeric_value_out_of_ranges_are_translated_to_specific_exception
         error = assert_raises(ActiveRecord::RangeError) do
-          Book.connection.create("INSERT INTO books(author_id) VALUES (2147483648)")
+          Book.connection.create("INSERT INTO books(author_id) VALUES (9223372036854775808)")
         end
 
         assert_not_nil error.cause
       end
+    end
+
+    def test_exceptions_from_notifications_are_not_translated
+      original_error = StandardError.new("This StandardError shouldn't get translated")
+      subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") { raise original_error }
+      wrapped_error = assert_raises(ActiveSupport::Notifications::InstrumentationSubscriberError) do
+        @connection.execute("SELECT * FROM posts")
+      end
+      actual_error = wrapped_error.exceptions.first
+
+      assert_equal original_error, actual_error
+
+    ensure
+      ActiveSupport::Notifications.unsubscribe(subscriber) if subscriber
+    end
+
+    def test_database_related_exceptions_are_translated_to_statement_invalid
+      error = assert_raises(ActiveRecord::StatementInvalid) do
+        @connection.execute("This is a syntax error")
+      end
+
+      assert_instance_of ActiveRecord::StatementInvalid, error
+      assert_kind_of Exception, error.cause
     end
 
     def test_select_all_always_return_activerecord_result
@@ -206,11 +238,82 @@ module ActiveRecord
       assert result.is_a?(ActiveRecord::Result)
     end
 
+    if ActiveRecord::Base.connection.prepared_statements
+      def test_select_all_insert_update_delete_with_legacy_binds
+        binds = [[Event.column_for_attribute("id"), 1]]
+        bind_param = Arel::Nodes::BindParam.new(nil)
+
+        assert_deprecated do
+          id = @connection.insert("INSERT INTO events(id) VALUES (#{bind_param.to_sql})", nil, nil, nil, nil, binds)
+          assert_equal 1, id
+        end
+
+        assert_deprecated do
+          updated = @connection.update("UPDATE events SET title = 'foo' WHERE id = #{bind_param.to_sql}", nil, binds)
+          assert_equal 1, updated
+        end
+
+        assert_deprecated do
+          result = @connection.select_all("SELECT * FROM events WHERE id = #{bind_param.to_sql}", nil, binds)
+          assert_equal({ "id" => 1, "title" => "foo" }, result.first)
+        end
+
+        assert_deprecated do
+          deleted = @connection.delete("DELETE FROM events WHERE id = #{bind_param.to_sql}", nil, binds)
+          assert_equal 1, deleted
+        end
+
+        assert_deprecated do
+          result = @connection.select_all("SELECT * FROM events WHERE id = #{bind_param.to_sql}", nil, binds)
+          assert_nil result.first
+        end
+      end
+
+      def test_select_all_insert_update_delete_with_casted_binds
+        binds = [Event.type_for_attribute("id").serialize(1)]
+        bind_param = Arel::Nodes::BindParam.new(nil)
+
+        id = @connection.insert("INSERT INTO events(id) VALUES (#{bind_param.to_sql})", nil, nil, nil, nil, binds)
+        assert_equal 1, id
+
+        updated = @connection.update("UPDATE events SET title = 'foo' WHERE id = #{bind_param.to_sql}", nil, binds)
+        assert_equal 1, updated
+
+        result = @connection.select_all("SELECT * FROM events WHERE id = #{bind_param.to_sql}", nil, binds)
+        assert_equal({ "id" => 1, "title" => "foo" }, result.first)
+
+        deleted = @connection.delete("DELETE FROM events WHERE id = #{bind_param.to_sql}", nil, binds)
+        assert_equal 1, deleted
+
+        result = @connection.select_all("SELECT * FROM events WHERE id = #{bind_param.to_sql}", nil, binds)
+        assert_nil result.first
+      end
+
+      def test_select_all_insert_update_delete_with_binds
+        binds = [Relation::QueryAttribute.new("id", 1, Event.type_for_attribute("id"))]
+        bind_param = Arel::Nodes::BindParam.new(nil)
+
+        id = @connection.insert("INSERT INTO events(id) VALUES (#{bind_param.to_sql})", nil, nil, nil, nil, binds)
+        assert_equal 1, id
+
+        updated = @connection.update("UPDATE events SET title = 'foo' WHERE id = #{bind_param.to_sql}", nil, binds)
+        assert_equal 1, updated
+
+        result = @connection.select_all("SELECT * FROM events WHERE id = #{bind_param.to_sql}", nil, binds)
+        assert_equal({ "id" => 1, "title" => "foo" }, result.first)
+
+        deleted = @connection.delete("DELETE FROM events WHERE id = #{bind_param.to_sql}", nil, binds)
+        assert_equal 1, deleted
+
+        result = @connection.select_all("SELECT * FROM events WHERE id = #{bind_param.to_sql}", nil, binds)
+        assert_nil result.first
+      end
+    end
+
     def test_select_methods_passing_a_association_relation
       author = Author.create!(name: "john")
       Post.create!(author: author, title: "foo", body: "bar")
       query = author.posts.where(title: "foo").select(:title)
-      assert_equal({ "title" => "foo" }, @connection.select_one(query.arel, nil, query.bound_attributes))
       assert_equal({ "title" => "foo" }, @connection.select_one(query))
       assert @connection.select_all(query).is_a?(ActiveRecord::Result)
       assert_equal "foo", @connection.select_value(query)
@@ -220,7 +323,6 @@ module ActiveRecord
     def test_select_methods_passing_a_relation
       Post.create!(title: "foo", body: "bar")
       query = Post.where(title: "foo").select(:title)
-      assert_equal({ "title" => "foo" }, @connection.select_one(query.arel, nil, query.bound_attributes))
       assert_equal({ "title" => "foo" }, @connection.select_one(query))
       assert @connection.select_all(query).is_a?(ActiveRecord::Result)
       assert_equal "foo", @connection.select_value(query)
@@ -231,21 +333,21 @@ module ActiveRecord
       assert_equal "special_db_type", @connection.type_to_sql(:special_db_type)
     end
 
-    unless current_adapter?(:PostgreSQLAdapter)
-      def test_log_invalid_encoding
-        error = assert_raises RuntimeError do
-          @connection.send :log, "SELECT 'ы' FROM DUAL" do
-            raise "ы".force_encoding(Encoding::ASCII_8BIT)
-          end
-        end
+    def test_allowed_index_name_length_is_deprecated
+      assert_deprecated { @connection.allowed_index_name_length }
+    end
 
-        assert_not_nil error.message
+    unless current_adapter?(:OracleAdapter)
+      def test_in_clause_length_is_deprecated
+        assert_deprecated { @connection.in_clause_length }
       end
     end
   end
 
   class AdapterForeignKeyTest < ActiveRecord::TestCase
     self.use_transactional_tests = false
+
+    fixtures :fk_test_has_pk
 
     def setup
       @connection = ActiveRecord::Base.connection
@@ -265,9 +367,19 @@ module ActiveRecord
       assert_not_nil error.cause
     end
 
-    def test_foreign_key_violations_are_translated_to_specific_exception
+    def test_foreign_key_violations_on_insert_are_translated_to_specific_exception
       error = assert_raises(ActiveRecord::InvalidForeignKey) do
         insert_into_fk_test_has_fk
+      end
+
+      assert_not_nil error.cause
+    end
+
+    def test_foreign_key_violations_on_delete_are_translated_to_specific_exception
+      insert_into_fk_test_has_fk fk_id: 1
+
+      error = assert_raises(ActiveRecord::InvalidForeignKey) do
+        @connection.execute "DELETE FROM fk_test_has_pk WHERE pk_id = 1"
       end
 
       assert_not_nil error.cause
@@ -285,14 +397,13 @@ module ActiveRecord
     end
 
     private
-
-      def insert_into_fk_test_has_fk
+      def insert_into_fk_test_has_fk(fk_id: 0)
         # Oracle adapter uses prefetched primary key values from sequence and passes them to connection adapter insert method
         if @connection.prefetch_primary_key?
           id_value = @connection.next_sequence_value(@connection.default_sequence_name("fk_test_has_fk", "id"))
-          @connection.execute "INSERT INTO fk_test_has_fk (id,fk_id) VALUES (#{id_value},0)"
+          @connection.execute "INSERT INTO fk_test_has_fk (id,fk_id) VALUES (#{id_value},#{fk_id})"
         else
-          @connection.execute "INSERT INTO fk_test_has_fk (fk_id) VALUES (0)"
+          @connection.execute "INSERT INTO fk_test_has_fk (fk_id) VALUES (#{fk_id})"
         end
       end
   end
@@ -300,31 +411,155 @@ module ActiveRecord
   class AdapterTestWithoutTransaction < ActiveRecord::TestCase
     self.use_transactional_tests = false
 
-    class Klass < ActiveRecord::Base
-    end
+    fixtures :posts, :authors, :author_addresses
 
     def setup
-      Klass.establish_connection :arunit
-      @connection = Klass.connection
-    end
-
-    teardown do
-      Klass.remove_connection
+      @connection = ActiveRecord::Base.connection
     end
 
     unless in_memory_db?
+      test "reconnect after a disconnect" do
+        assert_predicate @connection, :active?
+        @connection.disconnect!
+        assert_not_predicate @connection, :active?
+        @connection.reconnect!
+        assert_predicate @connection, :active?
+      end
+
       test "transaction state is reset after a reconnect" do
         @connection.begin_transaction
-        assert @connection.transaction_open?
+        assert_predicate @connection, :transaction_open?
         @connection.reconnect!
-        assert !@connection.transaction_open?
+        assert_not_predicate @connection, :transaction_open?
       end
 
       test "transaction state is reset after a disconnect" do
         @connection.begin_transaction
-        assert @connection.transaction_open?
+        assert_predicate @connection, :transaction_open?
         @connection.disconnect!
-        assert !@connection.transaction_open?
+        assert_not_predicate @connection, :transaction_open?
+      ensure
+        @connection.reconnect!
+      end
+    end
+
+    def test_create_with_query_cache
+      @connection.enable_query_cache!
+
+      count = Post.count
+
+      @connection.create("INSERT INTO posts(title, body) VALUES ('', '')")
+
+      assert_equal count + 1, Post.count
+    ensure
+      reset_fixtures("posts")
+      @connection.disable_query_cache!
+    end
+
+    def test_truncate
+      assert_operator Post.count, :>, 0
+
+      @connection.truncate("posts")
+
+      assert_equal 0, Post.count
+    ensure
+      reset_fixtures("posts")
+    end
+
+    def test_truncate_with_query_cache
+      @connection.enable_query_cache!
+
+      assert_operator Post.count, :>, 0
+
+      @connection.truncate("posts")
+
+      assert_equal 0, Post.count
+    ensure
+      reset_fixtures("posts")
+      @connection.disable_query_cache!
+    end
+
+    def test_truncate_tables
+      assert_operator Post.count, :>, 0
+      assert_operator Author.count, :>, 0
+      assert_operator AuthorAddress.count, :>, 0
+
+      @connection.truncate_tables("author_addresses", "authors", "posts")
+
+      assert_equal 0, Post.count
+      assert_equal 0, Author.count
+      assert_equal 0, AuthorAddress.count
+    ensure
+      reset_fixtures("posts", "authors", "author_addresses")
+    end
+
+    def test_truncate_tables_with_query_cache
+      @connection.enable_query_cache!
+
+      assert_operator Post.count, :>, 0
+      assert_operator Author.count, :>, 0
+      assert_operator AuthorAddress.count, :>, 0
+
+      @connection.truncate_tables("author_addresses", "authors", "posts")
+
+      assert_equal 0, Post.count
+      assert_equal 0, Author.count
+      assert_equal 0, AuthorAddress.count
+    ensure
+      reset_fixtures("posts", "authors", "author_addresses")
+      @connection.disable_query_cache!
+    end
+
+    # test resetting sequences in odd tables in PostgreSQL
+    if ActiveRecord::Base.connection.respond_to?(:reset_pk_sequence!)
+      require "models/movie"
+      require "models/subscriber"
+
+      def test_reset_empty_table_with_custom_pk
+        Movie.delete_all
+        Movie.connection.reset_pk_sequence! "movies"
+        assert_equal 1, Movie.create(name: "fight club").id
+      end
+
+      def test_reset_table_with_non_integer_pk
+        Subscriber.delete_all
+        Subscriber.connection.reset_pk_sequence! "subscribers"
+        sub = Subscriber.new(name: "robert drake")
+        sub.id = "bob drake"
+        assert_nothing_raised { sub.save! }
+      end
+    end
+
+    private
+      def reset_fixtures(*fixture_names)
+        ActiveRecord::FixtureSet.reset_cache
+
+        fixture_names.each do |fixture_name|
+          ActiveRecord::FixtureSet.create_fixtures(FIXTURES_ROOT, fixture_name)
+        end
+      end
+  end
+end
+
+if ActiveRecord::Base.connection.supports_advisory_locks?
+  class AdvisoryLocksEnabledTest < ActiveRecord::TestCase
+    include ConnectionHelper
+
+    def test_advisory_locks_enabled?
+      assert ActiveRecord::Base.connection.advisory_locks_enabled?
+
+      run_without_connection do |orig_connection|
+        ActiveRecord::Base.establish_connection(
+          orig_connection.merge(advisory_locks: false)
+        )
+
+        assert_not ActiveRecord::Base.connection.advisory_locks_enabled?
+
+        ActiveRecord::Base.establish_connection(
+          orig_connection.merge(advisory_locks: true)
+        )
+
+        assert ActiveRecord::Base.connection.advisory_locks_enabled?
       end
     end
   end

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "abstract_unit"
 require "rails/code_statistics_calculator"
 
@@ -24,7 +26,7 @@ class CodeStatisticsCalculatorTest < ActiveSupport::TestCase
     end
   end
 
-  test "count number of methods in Minitest file" do
+  test "count number of methods in minitest file" do
     code = <<-RUBY
       class FooTest < ActionController::TestCase
         test 'expectation' do
@@ -216,6 +218,59 @@ class CodeStatisticsCalculatorTest < ActiveSupport::TestCase
     assert_equal 0, @code_statistics_calculator.methods
   end
 
+  test "skip ERB comments" do
+    code = <<-'CODE'
+      <!-- This is an HTML comment -->
+      <%# This is a great comment! %>
+      <div>
+        <%= hello %>
+
+      </div>
+    CODE
+
+    @code_statistics_calculator.add_by_io(StringIO.new(code), :erb)
+
+    assert_equal 6, @code_statistics_calculator.lines
+    assert_equal 3, @code_statistics_calculator.code_lines
+    assert_equal 0, @code_statistics_calculator.classes
+    assert_equal 0, @code_statistics_calculator.methods
+  end
+
+  test "skip CSS comments" do
+    code = <<-'CODE'
+      /* My cool CSS */
+      .selector {
+        background-color: blue;
+
+      }
+    CODE
+
+    @code_statistics_calculator.add_by_io(StringIO.new(code), :css)
+
+    assert_equal 5, @code_statistics_calculator.lines
+    assert_equal 3, @code_statistics_calculator.code_lines
+    assert_equal 0, @code_statistics_calculator.classes
+    assert_equal 0, @code_statistics_calculator.methods
+  end
+
+  test "skip SCSS comments" do
+    code = <<-'CODE'
+      // My cool SCSS
+      /* My cool SCSS */
+      .selector {
+        background-color: blue;
+
+      }
+    CODE
+
+    @code_statistics_calculator.add_by_io(StringIO.new(code), :scss)
+
+    assert_equal 6, @code_statistics_calculator.lines
+    assert_equal 3, @code_statistics_calculator.code_lines
+    assert_equal 0, @code_statistics_calculator.classes
+    assert_equal 0, @code_statistics_calculator.methods
+  end
+
   test "calculate number of CoffeeScript methods" do
     code = <<-'CODE'
       square = (x) -> x * x
@@ -317,7 +372,7 @@ class Animal
 
   private
     def temp_file(name, content)
-      dir = File.expand_path "../fixtures/tmp", __FILE__
+      dir = File.expand_path "fixtures/tmp", __dir__
       path = "#{dir}/#{name}"
 
       FileUtils.mkdir_p dir

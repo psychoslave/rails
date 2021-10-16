@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "mail"
 require "action_mailer/collector"
 require "active_support/core_ext/string/inflections"
@@ -14,11 +16,11 @@ module ActionMailer
   #
   # To use Action Mailer, you need to create a mailer model.
   #
-  #   $ rails generate mailer Notifier
+  #   $ bin/rails generate mailer Notifier
   #
   # The generated model inherits from <tt>ApplicationMailer</tt> which in turn
   # inherits from <tt>ActionMailer::Base</tt>. A mailer model defines methods
-  # used to generate an email message. In these methods, you can setup variables to be used in
+  # used to generate an email message. In these methods, you can set up variables to be used in
   # the mailer views, options on the mail itself such as the <tt>:from</tt> address, and attachments.
   #
   #   class ApplicationMailer < ActionMailer::Base
@@ -57,7 +59,7 @@ module ActionMailer
   # The hash passed to the mail method allows you to specify any header that a <tt>Mail::Message</tt>
   # will accept (any valid email header including optional fields).
   #
-  # The mail method, if not passed a block, will inspect your views and send all the views with
+  # The +mail+ method, if not passed a block, will inspect your views and send all the views with
   # the same name as the method, so the above action would send the +welcome.text.erb+ view
   # file as well as the +welcome.html.erb+ view file in a +multipart/alternative+ email.
   #
@@ -133,7 +135,10 @@ module ActionMailer
   #
   #   config.action_mailer.default_url_options = { host: "example.com" }
   #
-  # By default when <tt>config.force_ssl</tt> is true, URLs generated for hosts will use the HTTPS protocol.
+  # You can also define a <tt>default_url_options</tt> method on individual mailers to override these
+  # default settings per-mailer.
+  #
+  # By default when <tt>config.force_ssl</tt> is +true+, URLs generated for hosts will use the HTTPS protocol.
   #
   # = Sending mail
   #
@@ -288,20 +293,19 @@ module ActionMailer
   #             content_description: 'This is a description'
   #   end
   #
-  # Finally, Action Mailer also supports passing <tt>Proc</tt> objects into the default hash, so you
-  # can define methods that evaluate as the message is being generated:
+  # Finally, Action Mailer also supports passing <tt>Proc</tt> and <tt>Lambda</tt> objects into the default hash,
+  # so you can define methods that evaluate as the message is being generated:
   #
   #   class NotifierMailer < ApplicationMailer
-  #     default 'X-Special-Header' => Proc.new { my_method }
+  #     default 'X-Special-Header' => Proc.new { my_method }, to: -> { @inviter.email_address }
   #
   #     private
-  #
   #       def my_method
   #         'some complex call'
   #       end
   #   end
   #
-  # Note that the proc is evaluated right at the start of the mail message generation, so if you
+  # Note that the proc/lambda is evaluated right at the start of the mail message generation, so if you
   # set something in the default hash using a proc, and then set the same thing inside of your
   # mailer method, it will get overwritten by the mailer method.
   #
@@ -312,7 +316,7 @@ module ActionMailer
   #
   # = Callbacks
   #
-  # You can specify callbacks using before_action and after_action for configuring your messages.
+  # You can specify callbacks using <tt>before_action</tt> and <tt>after_action</tt> for configuring your messages.
   # This may be useful, for example, when you want to add default inline attachments for all
   # messages sent out by a certain mailer class:
   #
@@ -324,7 +328,6 @@ module ActionMailer
   #     end
   #
   #     private
-  #
   #       def add_inline_attachment!
   #         attachments.inline["footer.jpg"] = File.read('/path/to/filename.jpg')
   #       end
@@ -405,7 +408,9 @@ module ActionMailer
   #     really useful if you need to validate a self-signed and/or a wildcard certificate. You can use the name
   #     of an OpenSSL verify constant (<tt>'none'</tt> or <tt>'peer'</tt>) or directly the constant
   #     (<tt>OpenSSL::SSL::VERIFY_NONE</tt> or <tt>OpenSSL::SSL::VERIFY_PEER</tt>).
-  #     <tt>:ssl/:tls</tt> Enables the SMTP connection to use SMTP/TLS (SMTPS: SMTP over direct TLS connection)
+  #   * <tt>:ssl/:tls</tt> Enables the SMTP connection to use SMTP/TLS (SMTPS: SMTP over direct TLS connection)
+  #   * <tt>:open_timeout</tt> Number of seconds to wait while attempting to open a connection.
+  #   * <tt>:read_timeout</tt> Number of seconds to wait until timing-out a read(2) call.
   #
   # * <tt>sendmail_settings</tt> - Allows you to override options for the <tt>:sendmail</tt> delivery method.
   #   * <tt>:location</tt> - The location of the sendmail executable. Defaults to <tt>/usr/sbin/sendmail</tt>.
@@ -434,6 +439,7 @@ module ActionMailer
   class Base < AbstractController::Base
     include DeliveryMethods
     include Rescuable
+    include Parameterized
     include Previews
 
     abstract!
@@ -451,14 +457,10 @@ module ActionMailer
 
     PROTECTED_IVARS = AbstractController::Rendering::DEFAULT_PROTECTED_INSTANCE_VARIABLES + [:@_action_has_layout]
 
-    def _protected_ivars # :nodoc:
-      PROTECTED_IVARS
-    end
-
     helper ActionMailer::MailHelper
 
-    class_attribute :default_params
-    self.default_params = {
+    class_attribute :delivery_job, default: ::ActionMailer::DeliveryJob
+    class_attribute :default_params, default: {
       mime_version: "1.0",
       charset:      "UTF-8",
       content_type: "text/plain",
@@ -471,9 +473,19 @@ module ActionMailer
         observers.flatten.compact.each { |observer| register_observer(observer) }
       end
 
+      # Unregister one or more previously registered Observers.
+      def unregister_observers(*observers)
+        observers.flatten.compact.each { |observer| unregister_observer(observer) }
+      end
+
       # Register one or more Interceptors which will be called before mail is sent.
       def register_interceptors(*interceptors)
         interceptors.flatten.compact.each { |interceptor| register_interceptor(interceptor) }
+      end
+
+      # Unregister one or more previously registered Interceptors.
+      def unregister_interceptors(*interceptors)
+        interceptors.flatten.compact.each { |interceptor| unregister_interceptor(interceptor) }
       end
 
       # Register an Observer which will be notified when mail is delivered.
@@ -483,11 +495,25 @@ module ActionMailer
         Mail.register_observer(observer_class_for(observer))
       end
 
+      # Unregister a previously registered Observer.
+      # Either a class, string or symbol can be passed in as the Observer.
+      # If a string or symbol is passed in it will be camelized and constantized.
+      def unregister_observer(observer)
+        Mail.unregister_observer(observer_class_for(observer))
+      end
+
       # Register an Interceptor which will be called before mail is sent.
       # Either a class, string or symbol can be passed in as the Interceptor.
       # If a string or symbol is passed in it will be camelized and constantized.
       def register_interceptor(interceptor)
         Mail.register_interceptor(observer_class_for(interceptor))
+      end
+
+      # Unregister a previously registered Interceptor.
+      # Either a class, string or symbol can be passed in as the Interceptor.
+      # If a string or symbol is passed in it will be camelized and constantized.
+      def unregister_interceptor(interceptor)
+        Mail.unregister_interceptor(observer_class_for(interceptor))
       end
 
       def observer_class_for(value) # :nodoc:
@@ -523,52 +549,41 @@ module ActionMailer
       #    config.action_mailer.default_options = { from: "no-reply@example.org" }
       alias :default_options= :default
 
-      # Receives a raw email, parses it into an email object, decodes it,
-      # instantiates a new mailer, and passes the email object to the mailer
-      # object's +receive+ method.
-      #
-      # If you want your mailer to be able to process incoming messages, you'll
-      # need to implement a +receive+ method that accepts the raw email string
-      # as a parameter:
-      #
-      #   class MyMailer < ActionMailer::Base
-      #     def receive(mail)
-      #       # ...
-      #     end
-      #   end
-      def receive(raw_mail)
-        ActiveSupport::Notifications.instrument("receive.action_mailer") do |payload|
-          mail = Mail.new(raw_mail)
-          set_payload_for_mail(payload, mail)
-          new.receive(mail)
-        end
-      end
-
       # Wraps an email delivery inside of <tt>ActiveSupport::Notifications</tt> instrumentation.
       #
       # This method is actually called by the <tt>Mail::Message</tt> object itself
       # through a callback when you call <tt>:deliver</tt> on the <tt>Mail::Message</tt>,
       # calling +deliver_mail+ directly and passing a <tt>Mail::Message</tt> will do
       # nothing except tell the logger you sent the email.
-      def deliver_mail(mail) #:nodoc:
+      def deliver_mail(mail) # :nodoc:
         ActiveSupport::Notifications.instrument("deliver.action_mailer") do |payload|
           set_payload_for_mail(payload, mail)
           yield # Let Mail do the delivery actions
         end
       end
 
-    private
+      # Returns an email in the format "Name <email@example.com>".
+      #
+      # If the name is a blank string, it returns just the address.
+      def email_address_with_name(address, name)
+        Mail::Address.new.tap do |builder|
+          builder.address = address
+          builder.display_name = name.presence
+        end.to_s
+      end
 
+    private
       def set_payload_for_mail(payload, mail)
-        payload[:mailer]     = name
-        payload[:message_id] = mail.message_id
-        payload[:subject]    = mail.subject
-        payload[:to]         = mail.to
-        payload[:from]       = mail.from
-        payload[:bcc]        = mail.bcc if mail.bcc.present?
-        payload[:cc]         = mail.cc  if mail.cc.present?
-        payload[:date]       = mail.date
-        payload[:mail]       = mail.encoded
+        payload[:mail]               = mail.encoded
+        payload[:mailer]             = name
+        payload[:message_id]         = mail.message_id
+        payload[:subject]            = mail.subject
+        payload[:to]                 = mail.to
+        payload[:from]               = mail.from
+        payload[:bcc]                = mail.bcc if mail.bcc.present?
+        payload[:cc]                 = mail.cc  if mail.cc.present?
+        payload[:date]               = mail.date
+        payload[:perform_deliveries] = mail.perform_deliveries
       end
 
       def method_missing(method_name, *args)
@@ -578,6 +593,7 @@ module ActionMailer
           super
         end
       end
+      ruby2_keywords(:method_missing)
 
       def respond_to_missing?(method, include_all = false)
         action_methods.include?(method.to_s) || super
@@ -586,20 +602,17 @@ module ActionMailer
 
     attr_internal :message
 
-    # Instantiate a new mailer object. If +method_name+ is not +nil+, the mailer
-    # will be initialized according to the named method. If not, the mailer will
-    # remain uninitialized (useful when you only need to invoke the "receive"
-    # method, for instance).
     def initialize
       super()
       @_mail_was_called = false
       @_message = Mail.new
     end
 
-    def process(method_name, *args) #:nodoc:
+    def process(method_name, *args) # :nodoc:
       payload = {
         mailer: self.class.name,
-        action: method_name
+        action: method_name,
+        args: args
       }
 
       ActiveSupport::Notifications.instrument("process.action_mailer", payload) do
@@ -608,7 +621,7 @@ module ActionMailer
       end
     end
 
-    class NullMail #:nodoc:
+    class NullMail # :nodoc:
       def body; "" end
       def header; {} end
 
@@ -624,6 +637,13 @@ module ActionMailer
     # Returns the name of the mailer object.
     def mailer_name
       self.class.mailer_name
+    end
+
+    # Returns an email in the format "Name <email@example.com>".
+    #
+    # If the name is a blank string, it returns just the address.
+    def email_address_with_name(address, name)
+      self.class.email_address_with_name(address, name)
     end
 
     # Allows you to pass random and unusual headers to the new <tt>Mail::Message</tt>
@@ -707,7 +727,7 @@ module ActionMailer
     end
 
     class LateAttachmentsProxy < SimpleDelegator
-      def inline; _raise_error end
+      def inline; self end
       def []=(_name, _content); _raise_error end
 
       private
@@ -828,8 +848,9 @@ module ActionMailer
       @_mail_was_called = true
 
       create_parts_from_responses(message, responses)
+      wrap_inline_attachments(message)
 
-      # Setup content type, reapply charset and handle parts order
+      # Set up content type, reapply charset and handle parts order
       message.content_type = set_content_type(message, content_type, headers[:content_type])
       message.charset      = charset
 
@@ -842,7 +863,6 @@ module ActionMailer
     end
 
     private
-
       # Used by #mail to set the content type of the message.
       #
       # It will use the given +user_content_type+, or multipart if the mail
@@ -858,7 +878,7 @@ module ActionMailer
         when user_content_type.present?
           user_content_type
         when m.has_attachments?
-          if m.attachments.detect(&:inline?)
+          if m.attachments.all?(&:inline?)
             ["multipart", "related", params]
           else
             ["multipart", "mixed", params]
@@ -876,7 +896,7 @@ module ActionMailer
       # If the subject has interpolations, you can pass them through the +interpolations+ parameter.
       def default_i18n_subject(interpolations = {}) # :doc:
         mailer_scope = self.class.mailer_name.tr("/", ".")
-        I18n.t(:subject, interpolations.merge(scope: [mailer_scope, action_name], default: action_name.humanize))
+        I18n.t(:subject, **interpolations.merge(scope: [mailer_scope, action_name], default: action_name.humanize))
       end
 
       # Emails do not support relative path links.
@@ -885,16 +905,23 @@ module ActionMailer
       end
 
       def apply_defaults(headers)
-        default_values = self.class.default.map do |key, value|
-          [
-            key,
-            value.is_a?(Proc) ? instance_eval(&value) : value
-          ]
-        end.to_h
+        default_values = self.class.default.except(*headers.keys).transform_values do |value|
+          compute_default(value)
+        end
 
         headers_with_defaults = headers.reverse_merge(default_values)
         headers_with_defaults[:subject] ||= default_i18n_subject
         headers_with_defaults
+      end
+
+      def compute_default(value)
+        return value unless value.is_a?(Proc)
+
+        if value.arity == 1
+          instance_exec(self, &value)
+        else
+          instance_exec(&value)
+        end
       end
 
       def assign_headers_to_message(message, headers)
@@ -903,16 +930,21 @@ module ActionMailer
         assignable.each { |k, v| message[k] = v }
       end
 
-      def collect_responses(headers)
+      def collect_responses(headers, &block)
         if block_given?
-          collector = ActionMailer::Collector.new(lookup_context) { render(action_name) }
-          yield(collector)
-          collector.responses
+          collect_responses_from_block(headers, &block)
         elsif headers[:body]
           collect_responses_from_text(headers)
         else
           collect_responses_from_templates(headers)
         end
+      end
+
+      def collect_responses_from_block(headers)
+        templates_name = headers[:template_name] || action_name
+        collector = ActionMailer::Collector.new(lookup_context) { render(templates_name) }
+        yield(collector)
+        collector.responses
       end
 
       def collect_responses_from_text(headers)
@@ -927,10 +959,10 @@ module ActionMailer
         templates_name = headers[:template_name] || action_name
 
         each_template(Array(templates_path), templates_name).map do |template|
-          self.formats = template.formats
+          format = template.format || self.formats.first
           {
-            body: render(template: template),
-            content_type: template.type.to_s
+            body: render(template: template, formats: [format]),
+            content_type: Mime[format].to_s
           }
         end
       end
@@ -940,7 +972,28 @@ module ActionMailer
         if templates.empty?
           raise ActionView::MissingTemplate.new(paths, name, paths, false, "mailer")
         else
-          templates.uniq(&:formats).each(&block)
+          templates.uniq(&:format).each(&block)
+        end
+      end
+
+      def wrap_inline_attachments(message)
+        # If we have both types of attachment, wrap all the inline attachments
+        # in multipart/related, but not the actual attachments
+        if message.attachments.detect(&:inline?) && message.attachments.detect { |a| !a.inline? }
+          related = Mail::Part.new
+          related.content_type = "multipart/related"
+          mixed = [ related ]
+
+          message.parts.each do |p|
+            if p.attachment? && !p.inline?
+              mixed << p
+            else
+              related.add_part(p)
+            end
+          end
+
+          message.parts.clear
+          mixed.each { |c| message.add_part(c) }
         end
       end
 
@@ -973,6 +1026,10 @@ module ActionMailer
 
       def instrument_name
         "action_mailer"
+      end
+
+      def _protected_ivars
+        PROTECTED_IVARS
       end
 
       ActiveSupport.run_load_hooks(:action_mailer, self)

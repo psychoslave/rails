@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "abstract_unit"
 
 class HttpBasicAuthenticationTest < ActionController::TestCase
@@ -30,7 +32,6 @@ class HttpBasicAuthenticationTest < ActionController::TestCase
     end
 
     private
-
       def authenticate
         authenticate_or_request_with_http_basic do |username, password|
           username == "lifo" && password == "world"
@@ -111,6 +112,11 @@ class HttpBasicAuthenticationTest < ActionController::TestCase
     assert_no_match(/\n/, result)
   end
 
+  test "has_basic_credentials? should fail with credentials without colon" do
+    @request.env["HTTP_AUTHORIZATION"] = "Basic #{::Base64.encode64("David Goliath")}"
+    assert_not ActionController::HttpAuthentication::Basic.has_basic_credentials?(@request)
+  end
+
   test "successful authentication with uppercase authorization scheme" do
     @request.env["HTTP_AUTHORIZATION"] = "BASIC #{::Base64.encode64("lifo:world")}"
     get :index
@@ -170,7 +176,6 @@ class HttpBasicAuthenticationTest < ActionController::TestCase
   end
 
   private
-
     def encode_credentials(username, password)
       "Basic #{::Base64.encode64("#{username}:#{password}")}"
     end

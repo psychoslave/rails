@@ -1,8 +1,8 @@
+# frozen_string_literal: true
+
 module ActiveRecord
   # See ActiveRecord::Aggregations::ClassMethods for documentation
   module Aggregations
-    extend ActiveSupport::Concern
-
     def initialize_dup(*) # :nodoc:
       @aggregation_cache = {}
       super
@@ -14,7 +14,6 @@ module ActiveRecord
     end
 
     private
-
       def clear_aggregation_cache
         @aggregation_cache.clear if persisted?
       end
@@ -33,7 +32,7 @@ module ActiveRecord
       # the database).
       #
       #   class Customer < ActiveRecord::Base
-      #     composed_of :balance, class_name: "Money", mapping: %w(amount currency)
+      #     composed_of :balance, class_name: "Money", mapping: %w(balance amount)
       #     composed_of :address, mapping: [ %w(address_street street), %w(address_city city) ]
       #   end
       #
@@ -142,7 +141,7 @@ module ActiveRecord
       # converted to an instance of value class if necessary.
       #
       # For example, the +NetworkResource+ model has +network_address+ and +cidr_range+ attributes that should be
-      # aggregated using the +NetAddr::CIDR+ value class (http://www.rubydoc.info/gems/netaddr/1.5.0/NetAddr/CIDR).
+      # aggregated using the +NetAddr::CIDR+ value class (https://www.rubydoc.info/gems/netaddr/1.5.0/NetAddr/CIDR).
       # The constructor for the value class is called +create+ and it expects a CIDR address string as a parameter.
       # New values can be assigned to the value object using either another +NetAddr::CIDR+ object, a string
       # or an array. The <tt>:constructor</tt> and <tt>:converter</tt> options can be used to meet
@@ -175,9 +174,9 @@ module ActiveRecord
       #
       # Once a #composed_of relationship is specified for a model, records can be loaded from the database
       # by specifying an instance of the value object in the conditions hash. The following example
-      # finds all customers with +balance_amount+ equal to 20 and +balance_currency+ equal to "USD":
+      # finds all customers with +address_street+ equal to "May Street" and +address_city+ equal to "Chicago":
       #
-      #   Customer.where(balance: Money.new(20, "USD"))
+      #   Customer.where(address: Address.new("May Street", "Chicago"))
       #
       module ClassMethods
         # Adds reader and writer methods for manipulating a value object:
@@ -210,8 +209,7 @@ module ActiveRecord
         #
         # Option examples:
         #   composed_of :temperature, mapping: %w(reading celsius)
-        #   composed_of :balance, class_name: "Money", mapping: %w(balance amount),
-        #                         converter: Proc.new { |balance| balance.to_money }
+        #   composed_of :balance, class_name: "Money", mapping: %w(balance amount)
         #   composed_of :address, mapping: [ %w(address_street street), %w(address_city city) ]
         #   composed_of :gps_location
         #   composed_of :gps_location, allow_nil: true
@@ -223,6 +221,10 @@ module ActiveRecord
         #
         def composed_of(part_id, options = {})
           options.assert_valid_keys(:class_name, :mapping, :allow_nil, :constructor, :converter)
+
+          unless self < Aggregations
+            include Aggregations
+          end
 
           name        = part_id.id2name
           class_name  = options[:class_name]  || name.camelize
@@ -242,8 +244,8 @@ module ActiveRecord
         private
           def reader_method(name, class_name, mapping, allow_nil, constructor)
             define_method(name) do
-              if @aggregation_cache[name].nil? && (!allow_nil || mapping.any? { |key, _| !_read_attribute(key).nil? })
-                attrs = mapping.collect { |key, _| _read_attribute(key) }
+              if @aggregation_cache[name].nil? && (!allow_nil || mapping.any? { |key, _| !read_attribute(key).nil? })
+                attrs = mapping.collect { |key, _| read_attribute(key) }
                 object = constructor.respond_to?(:call) ?
                   constructor.call(*attrs) :
                   class_name.constantize.send(constructor, *attrs)
@@ -262,17 +264,17 @@ module ActiveRecord
               end
 
               hash_from_multiparameter_assignment = part.is_a?(Hash) &&
-                part.each_key.all? { |k| k.is_a?(Integer) }
+                part.keys.all?(Integer)
               if hash_from_multiparameter_assignment
                 raise ArgumentError unless part.size == part.each_key.max
                 part = klass.new(*part.sort.map(&:last))
               end
 
               if part.nil? && allow_nil
-                mapping.each { |key, _| self[key] = nil }
+                mapping.each { |key, _| write_attribute(key, nil) }
                 @aggregation_cache[name] = nil
               else
-                mapping.each { |key, value| self[key] = part.send(value) }
+                mapping.each { |key, value| write_attribute(key, part.send(value)) }
                 @aggregation_cache[name] = part.freeze
               end
             end

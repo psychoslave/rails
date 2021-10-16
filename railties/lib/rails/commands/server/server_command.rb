@@ -1,8 +1,11 @@
+# frozen_string_literal: true
+
 require "fileutils"
-require "optparse"
 require "action_dispatch"
 require "rails"
+require "active_support/core_ext/string/filters"
 require "rails/dev_caching"
+require "rails/command/environment_argument"
 
 module Rails
   class Server < ::Rack::Server
@@ -18,14 +21,6 @@ module Rails
       set_environment
     end
 
-    # TODO: this is no longer required but we keep it for the moment to support older config.ru files.
-    def app
-      @app ||= begin
-        app = super
-        app.respond_to?(:to_app) ? app.to_app : app
-      end
-    end
-
     def opt_parser
       Options.new
     end
@@ -34,18 +29,22 @@ module Rails
       ENV["RAILS_ENV"] ||= options[:environment]
     end
 
-    def start
-      print_boot_information
+    def start(after_stop_callback = nil)
       trap(:INT) { exit }
       create_tmp_directories
       setup_dev_caching
       log_to_stdout if options[:log_stdout]
 
-      super
+      super()
     ensure
-      # The '-h' option calls exit before @options is set.
-      # If we call 'options' with it unset, we get double help banners.
-      puts "Exiting" unless @options && options[:daemonize]
+      after_stop_callback.call if after_stop_callback
+    end
+
+    def serveable? # :nodoc:
+      server
+      true
+    rescue LoadError, NameError
+      false
     end
 
     def middleware
@@ -56,18 +55,15 @@ module Rails
       super.merge(@default_options)
     end
 
+    def served_url
+      "#{options[:SSLEnable] ? 'https' : 'http'}://#{options[:Host]}:#{options[:Port]}" unless use_puma?
+    end
+
     private
       def setup_dev_caching
         if options[:environment] == "development"
           Rails::DevCaching.enable_by_argument(options[:caching])
         end
-      end
-
-      def print_boot_information
-        url = "#{options[:SSLEnable] ? 'https' : 'http'}://#{options[:Host]}:#{options[:Port]}"
-        puts "=> Booting #{ActiveSupport::Inflector.demodulize(server)}"
-        puts "=> Rails #{Rails.version} application starting in #{Rails.env} on #{url}"
-        puts "=> Run `rails server -h` for more startup options"
       end
 
       def create_tmp_directories
@@ -88,73 +84,142 @@ module Rails
         end
       end
 
-      def restart_command
-        "bin/rails server #{ARGV.join(' ')}"
+      def use_puma?
+        server.to_s == "Rack::Handler::Puma"
       end
   end
 
   module Command
     class ServerCommand < Base # :nodoc:
-      DEFAULT_PID_PATH = "tmp/pids/server.pid".freeze
+      include EnvironmentArgument
+
+      # Hard-coding a bunch of handlers here as we don't have a public way of
+      # querying them from the Rack::Handler registry.
+      RACK_SERVERS = %w(cgi fastcgi webrick lsws scgi thin puma unicorn falcon)
+
+      DEFAULT_PORT = 3000
+      DEFAULT_PIDFILE = "tmp/pids/server.pid"
 
       class_option :port, aliases: "-p", type: :numeric,
-        desc: "Runs Rails on the specified port.", banner: :port, default: 3000
-      class_option :binding, aliases: "-b", type: :string, default: "localhost",
-        desc: "Binds Rails to the specified IP.", banner: :IP
+        desc: "Runs Rails on the specified port - defaults to 3000.", banner: :port
+      class_option :binding, aliases: "-b", type: :string,
+        desc: "Binds Rails to the specified IP - defaults to 'localhost' in development and '0.0.0.0' in other environments'.",
+        banner: :IP
       class_option :config, aliases: "-c", type: :string, default: "config.ru",
         desc: "Uses a custom rackup configuration.", banner: :file
       class_option :daemon, aliases: "-d", type: :boolean, default: false,
         desc: "Runs server as a Daemon."
-      class_option :environment, aliases: "-e", type: :string,
-        desc: "Specifies the environment to run this server under (development/test/production).", banner: :name
-      class_option :pid, aliases: "-P", type: :string, default: DEFAULT_PID_PATH,
-        desc: "Specifies the PID file."
-      class_option "dev-caching", aliases: "-C", type: :boolean, default: nil,
+      class_option :using, aliases: "-u", type: :string,
+        desc: "Specifies the Rack server used to run the application (thin/puma/webrick).", banner: :name
+      class_option :pid, aliases: "-P", type: :string,
+        desc: "Specifies the PID file - defaults to #{DEFAULT_PIDFILE}."
+      class_option :dev_caching, aliases: "-C", type: :boolean, default: nil,
         desc: "Specifies whether to perform caching in development."
+      class_option :restart, type: :boolean, default: nil, hide: true
+      class_option :early_hints, type: :boolean, default: nil, desc: "Enables HTTP/2 early hints."
+      class_option :log_to_stdout, type: :boolean, default: nil, optional: true,
+        desc: "Whether to log to stdout. Enabled by default in development when not daemonized."
 
-      def initialize(args = [], local_options = {}, config = {})
-        @original_options = local_options
+      def initialize(args, local_options, *)
         super
-        @server = self.args.shift
-        @log_stdout = options[:daemon].blank? && (options[:environment] || Rails.env) == "development"
+
+        @original_options = local_options - %w( --restart )
       end
 
       def perform
+        extract_environment_option_from_argument
         set_application_directory!
+        prepare_restart
+
         Rails::Server.new(server_options).tap do |server|
           # Require application after server sets environment to propagate
           # the --environment option.
           require APP_PATH
           Dir.chdir(Rails.application.root)
-          server.start
+
+          if server.serveable?
+            print_boot_information(server.server, server.served_url)
+            after_stop_callback = -> { say "Exiting" unless options[:daemon] }
+            server.start(after_stop_callback)
+          else
+            say rack_server_suggestion(options[:using])
+          end
         end
       end
 
       no_commands do
         def server_options
           {
-            server:             @server,
-            log_stdout:         @log_stdout,
-            Port:               port,
-            Host:               host,
-            DoNotReverseLookup: true,
-            config:             options[:config],
-            environment:        environment,
-            daemonize:          options[:daemon],
-            pid:                pid,
-            caching:            options["dev-caching"],
-            restart_cmd:        restart_command
+            user_supplied_options: user_supplied_options,
+            server:                options[:using],
+            log_stdout:            log_to_stdout?,
+            Port:                  port,
+            Host:                  host,
+            DoNotReverseLookup:    true,
+            config:                options[:config],
+            environment:           environment,
+            daemonize:             options[:daemon],
+            pid:                   pid,
+            caching:               options[:dev_caching],
+            restart_cmd:           restart_command,
+            early_hints:           early_hints
           }
         end
       end
 
       private
+        def user_supplied_options
+          @user_supplied_options ||= begin
+            # Convert incoming options array to a hash of flags
+            #   ["-p3001", "-C", "--binding", "127.0.0.1"] # => {"-p"=>true, "-C"=>true, "--binding"=>true}
+            user_flag = {}
+            @original_options.each do |command|
+              if command.start_with?("--")
+                option = command.split("=")[0]
+                user_flag[option] = true
+              elsif command =~ /\A(-.)/
+                user_flag[Regexp.last_match[0]] = true
+              end
+            end
+
+            # Collect all options that the user has explicitly defined so we can
+            # differentiate them from defaults
+            user_supplied_options = []
+            self.class.class_options.select do |key, option|
+              if option.aliases.any? { |name| user_flag[name] } || user_flag["--#{option.name}"]
+                name = option.name.to_sym
+                case name
+                when :port
+                  name = :Port
+                when :binding
+                  name = :Host
+                when :dev_caching
+                  name = :caching
+                when :daemonize
+                  name = :daemon
+                end
+                user_supplied_options << name
+              end
+            end
+            user_supplied_options << :Host if ENV["HOST"] || ENV["BINDING"]
+            user_supplied_options << :Port if ENV["PORT"]
+            user_supplied_options << :pid if ENV["PIDFILE"]
+            user_supplied_options.uniq
+          end
+        end
+
         def port
-          ENV.fetch("PORT", options[:port]).to_i
+          options[:port] || ENV.fetch("PORT", DEFAULT_PORT).to_i
         end
 
         def host
-          ENV.fetch("HOST", options[:binding])
+          if options[:binding]
+            options[:binding]
+          else
+            default_host = environment == "development" ? "localhost" : "0.0.0.0"
+
+            ENV.fetch("BINDING", default_host)
+          end
         end
 
         def environment
@@ -162,15 +227,55 @@ module Rails
         end
 
         def restart_command
-          "bin/rails server #{@server} #{@original_options.join(" ")}"
+          "bin/rails server #{@original_options.join(" ")} --restart"
+        end
+
+        def early_hints
+          options[:early_hints]
+        end
+
+        def log_to_stdout?
+          options.fetch(:log_to_stdout) do
+            options[:daemon].blank? && environment == "development"
+          end
         end
 
         def pid
-          File.expand_path(options[:pid])
+          File.expand_path(options[:pid] || ENV.fetch("PIDFILE", DEFAULT_PIDFILE))
         end
 
         def self.banner(*)
-          "rails server [puma, thin etc] [options]"
+          "rails server -u [thin/puma/webrick] [options]"
+        end
+
+        def prepare_restart
+          FileUtils.rm_f(pid) if options[:restart]
+        end
+
+        def rack_server_suggestion(server)
+          if server.in?(RACK_SERVERS)
+            <<~MSG
+              Could not load server "#{server}". Maybe you need to the add it to the Gemfile?
+
+                gem "#{server}"
+
+              Run `bin/rails server --help` for more options.
+            MSG
+          else
+            error = CorrectableError.new("Could not find server '#{server}'.", server, RACK_SERVERS)
+            <<~MSG
+              #{error.message}
+              Run `bin/rails server --help` for more options.
+            MSG
+          end
+        end
+
+        def print_boot_information(server, url)
+          say <<~MSG
+            => Booting #{ActiveSupport::Inflector.demodulize(server)}
+            => Rails #{Rails.version} application starting in #{Rails.env} #{url}
+            => Run `bin/rails server --help` for more startup options
+          MSG
         end
     end
   end

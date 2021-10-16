@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "active_support/concern"
 require "rails/generators/actions/create_migration"
 
@@ -10,7 +12,7 @@ module Rails
       extend ActiveSupport::Concern
       attr_reader :migration_number, :migration_file_name, :migration_class_name
 
-      module ClassMethods #:nodoc:
+      module ClassMethods # :nodoc:
         def migration_lookup_at(dirname)
           Dir.glob("#{dirname}/[0-9]*_*.rb")
         end
@@ -60,9 +62,10 @@ module Rails
         dir, base = File.split(destination)
         numbered_destination = File.join(dir, ["%migration_number%", base].join("_"))
 
-        create_migration numbered_destination, nil, config do
-          ERB.new(::File.binread(source), nil, "-", "@output_buffer").result(context)
+        file = create_migration numbered_destination, nil, config do
+          ERB.new(::File.binread(source), trim_mode: "-", eoutvar: "@output_buffer").result(context)
         end
+        Rails::Generators.add_generated_file(file)
       end
     end
   end

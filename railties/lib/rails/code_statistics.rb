@@ -1,13 +1,18 @@
+# frozen_string_literal: true
+
 require "rails/code_statistics_calculator"
 require "active_support/core_ext/enumerable"
 
-class CodeStatistics #:nodoc:
+class CodeStatistics # :nodoc:
   TEST_TYPES = ["Controller tests",
                 "Helper tests",
                 "Model tests",
                 "Mailer tests",
+                "Mailbox tests",
+                "Channel tests",
                 "Job tests",
-                "Integration tests"]
+                "Integration tests",
+                "System tests"]
 
   HEADERS = { lines: " Lines", code_lines: "   LOC", classes: "Classes", methods: "Methods" }
 
@@ -35,15 +40,15 @@ class CodeStatistics #:nodoc:
       Hash[@pairs.map { |pair| [pair.first, calculate_directory_statistics(pair.last)] }]
     end
 
-    def calculate_directory_statistics(directory, pattern = /^(?!\.).*?\.(rb|js|coffee|rake)$/)
+    def calculate_directory_statistics(directory, pattern = /^(?!\.).*?\.(rb|js|ts|css|scss|coffee|rake|erb)$/)
       stats = CodeStatisticsCalculator.new
 
       Dir.foreach(directory) do |file_name|
         path = "#{directory}/#{file_name}"
 
-        if File.directory?(path) && (/^\./ !~ file_name)
+        if File.directory?(path) && !file_name.start_with?(".")
           stats.add(calculate_directory_statistics(path, pattern))
-        elsif file_name =~ pattern
+        elsif file_name&.match?(pattern)
           stats.add_by_file_path(path)
         end
       end
@@ -70,7 +75,7 @@ class CodeStatistics #:nodoc:
     end
 
     def width_for(label)
-      [@statistics.values.sum { |s| s.send(label) }.to_s.size, HEADERS[label].length].max
+      [@statistics.values.sum { |s| s.public_send(label) }.to_s.size, HEADERS[label].length].max
     end
 
     def print_header
@@ -92,8 +97,8 @@ class CodeStatistics #:nodoc:
     end
 
     def print_line(name, statistics)
-      m_over_c   = (statistics.methods / statistics.classes) rescue m_over_c = 0
-      loc_over_m = (statistics.code_lines / statistics.methods) - 2 rescue loc_over_m = 0
+      m_over_c   = (statistics.methods / statistics.classes) rescue 0
+      loc_over_m = (statistics.code_lines / statistics.methods) - 2 rescue 0
 
       print "| #{name.ljust(20)} "
       HEADERS.each_key do |k|

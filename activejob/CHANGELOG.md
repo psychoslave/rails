@@ -1,41 +1,71 @@
-*   Removed deprecated support to passing the adapter class to `.queue_adapter`.
+*   Raise an `SerializationError` in `Serializer::ModuleSerializer`
+    if the module name is not present. 
 
-    *Rafael Mendonça França*
+    *Veerpal Brar*
 
-*   Removed deprecated `#original_exception` in `ActiveJob::DeserializationError`.
 
-    *Rafael Mendonça França*
+## Rails 7.0.0.alpha2 (September 15, 2021) ##
 
-*   Added instance variable `@queue` to JobWrapper.
+*   No changes.
 
-    This will fix issues in [resque-scheduler](https://github.com/resque/resque-scheduler) `#job_to_hash` method,
-    so we can use `#enqueue_delayed_selection`, `#remove_delayed` method in resque-scheduler smoothly.
 
-    *mu29*
+## Rails 7.0.0.alpha1 (September 15, 2021) ##
 
-*   Yield the job instance so you have access to things like `job.arguments` on the custom logic after retries fail.
+*   Allow a job to retry indefinitely
 
-    *DHH*
+    The `attempts` parameter of the `retry_on` method now accepts the
+    symbol reference `:unlimited` in addition to a specific number of retry
+    attempts to allow a developer to specify that a job should retry
+    forever until it succeeds.
 
-*   Added declarative exception handling via `ActiveJob::Base.retry_on` and `ActiveJob::Base.discard_on`.
+        class MyJob < ActiveJob::Base
+          retry_on(AlwaysRetryException, attempts: :unlimited)
 
-    Examples:
+          # the actual job code
+        end
 
-        class RemoteServiceJob < ActiveJob::Base
-          retry_on CustomAppException # defaults to 3s wait, 5 attempts
-          retry_on AnotherCustomAppException, wait: ->(executions) { executions * 2 }
-          retry_on ActiveRecord::Deadlocked, wait: 5.seconds, attempts: 3
-          retry_on Net::OpenTimeout, wait: :exponentially_longer, attempts: 10
-          discard_on ActiveJob::DeserializationError
+    *Daniel Morton*
 
-          def perform(*args)
-            # Might raise CustomAppException or AnotherCustomAppException for something domain specific
-            # Might raise ActiveRecord::Deadlocked when a local db deadlock is detected
-            # Might raise Net::OpenTimeout when the remote service is down
+*   Added possibility to check on `:priority` in test helper methods
+    `assert_enqueued_with` and `assert_performed_with`.
+
+    *Wojciech Wnętrzak*
+
+*   OpenSSL constants are now used for Digest computations.
+
+    *Dirkjan Bussink*
+
+*   Add a Serializer for the Range class.
+
+    This should allow things like `MyJob.perform_later(range: 1..100)`.
+
+*   Communicate enqueue failures to callers of `perform_later`.
+
+    `perform_later` can now optionally take a block which will execute after
+    the adapter attempts to enqueue the job. The block will receive the job
+    instance as an argument even if the enqueue was not successful.
+    Additionally, `ActiveJob` adapters now have the ability to raise an
+    `ActiveJob::EnqueueError` which will be caught and stored in the job
+    instance so code attempting to enqueue jobs can inspect any raised
+    `EnqueueError` using the block.
+
+        MyJob.perform_later do |job|
+          unless job.successfully_enqueued?
+            if job.enqueue_error&.message == "Redis was unavailable"
+              # invoke some code that will retry the job after a delay
+            end
           end
         end
 
-    *DHH*
+    *Daniel Morton*
+
+*   Don't log rescuable exceptions defined with `rescue_from`.
+
+    *Hu Hailin*
+
+*   Allow `rescue_from` to rescue all exceptions.
+
+    *Adrianna Chang*, *Étienne Barrié*
 
 
-Please check [5-0-stable](https://github.com/rails/rails/blob/5-0-stable/activejob/CHANGELOG.md) for previous changes.
+Please check [6-1-stable](https://github.com/rails/rails/blob/6-1-stable/activejob/CHANGELOG.md) for previous changes.

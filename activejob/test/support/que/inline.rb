@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "que"
 
 Que::Job.class_eval do
@@ -7,6 +9,7 @@ Que::Job.class_eval do
       options = args.pop
       options.delete(:run_at)
       options.delete(:priority)
+      options.delete(:queue)
       args << options unless options.empty?
     end
     run(*args)

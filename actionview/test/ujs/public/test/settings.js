@@ -1,4 +1,5 @@
 var App = App || {}
+var Turbolinks = Turbolinks || {}
 
 App.assertCallbackInvoked = function(callbackName) {
   ok(true, callbackName + ' callback should have been invoked')
@@ -17,7 +18,7 @@ App.assertPostRequest = function(requestEnv) {
 }
 
 App.assertRequestPath = function(requestEnv, path) {
-  equal(requestEnv['PATH_INFO'], path, 'request should be sent to right url')
+  equal(requestEnv['PATH_INFO'], path, 'request should be sent to right URL')
 }
 
 App.getVal = function(el) {
@@ -63,14 +64,14 @@ $(document).bind('submit', function(e) {
   }
 })
 
-var MouseEvent = window.MouseEvent
+var _MouseEvent = window.MouseEvent
 
 try {
-  new MouseEvent()
+  new _MouseEvent()
 } catch (e) {
-  MouseEvent = function(type, options) {
+  _MouseEvent = function(type, options) {
     var evt = document.createEvent('MouseEvents')
-    evt.initMouseEvent(type, options.bubbles, options.cancelable, window, options.detail, 0, 0, 80, 20, options.ctrlKey, options.altKey, options.shiftKey, options.metaKey, 0, null)
+    evt.initMouseEvent(type, options.bubbles, options.cancelable, window, options.detail, 0, 0, 80, 20, options.ctrlKey, options.altKey, options.shiftKey, options.metaKey, options.button, null)
     return evt
   }
 }
@@ -81,7 +82,7 @@ $.fn.extend({
     var el = this[0],
         event,
         Evt = {
-          'click': MouseEvent,
+          'click': _MouseEvent,
           'change': Event,
           'pageshow': PageTransitionEvent,
           'submit': Event
@@ -103,14 +104,19 @@ $.fn.extend({
   bindNative: function(event, handler) {
     if (!handler) return this
 
-    this.bind(event, function(e) {
+    var el = this[0]
+    el.addEventListener(event, function(e) {
       var args = []
-      if (e.originalEvent.detail) {
-        args = e.originalEvent.detail.slice()
+      if (e.detail) {
+        args = e.detail.slice()
       }
       args.unshift(e)
-      return handler.apply(this, args)
-    })
+      return handler.apply(el, args)
+    }, false)
+
     return this
   }
 })
+
+Turbolinks.clearCache = function() {}
+Turbolinks.visit = function() {}

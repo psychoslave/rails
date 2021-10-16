@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActiveRecord
   module ConnectionAdapters
     module MySQL
@@ -9,11 +11,15 @@ module ActiveRecord
         end
 
         def case_sensitive?
-          collation && !/_ci\z/.match?(collation)
+          collation && !collation.end_with?("_ci")
         end
 
         def auto_increment?
           extra == "auto_increment"
+        end
+
+        def virtual?
+          /\b(?:VIRTUAL|STORED|PERSISTENT)\b/.match?(extra)
         end
       end
     end

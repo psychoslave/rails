@@ -1,4 +1,6 @@
-require "abstract_unit"
+# frozen_string_literal: true
+
+require_relative "../abstract_unit"
 require "active_support/xml_mini"
 require "active_support/core_ext/hash/conversions"
 
@@ -48,7 +50,7 @@ class XMLMiniEngineTest < ActiveSupport::TestCase
 
     def test_exception_thrown_on_expansion_attack
       assert_raise expansion_attack_error do
-        Hash.from_xml(<<-eoxml)
+        Hash.from_xml(<<~eoxml)
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE member [
             <!ENTITY a "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">
@@ -62,7 +64,7 @@ class XMLMiniEngineTest < ActiveSupport::TestCase
           <member>
             &a;
           </member>
-      eoxml
+        eoxml
       end
     end
 
@@ -73,6 +75,11 @@ class XMLMiniEngineTest < ActiveSupport::TestCase
     def test_blank_returns_empty_hash
       assert_equal({}, ActiveSupport::XmlMini.parse(nil))
       assert_equal({}, ActiveSupport::XmlMini.parse(""))
+    end
+
+    def test_parse_from_frozen_string
+      xml_string = "<root/>"
+      assert_equal({ "root" => {} }, ActiveSupport::XmlMini.parse(xml_string))
     end
 
     def test_array_type_makes_an_array

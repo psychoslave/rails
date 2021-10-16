@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "abstract_unit"
 
 class BooksController < ActionController::Base
@@ -18,6 +20,18 @@ class ActionControllerRequiredParamsTest < ActionController::TestCase
     assert_raise ActionController::ParameterMissing do
       post :create, params: { book: { title: "Mjallo!" } }
     end
+  end
+
+  test "exceptions have suggestions for fix" do
+    error = assert_raise ActionController::ParameterMissing do
+      post :create, params: { boko: { name: "Mjallo!" } }
+    end
+    assert_match "Did you mean?", error.message
+
+    error = assert_raise ActionController::ParameterMissing do
+      post :create, params: { book: { naem: "Mjallo!" } }
+    end
+    assert_match "Did you mean?", error.message
   end
 
   test "required parameters that are present will not raise" do
@@ -72,9 +86,27 @@ class ParametersRequireTest < ActiveSupport::TestCase
     assert params.value?("cinco")
   end
 
-  test "to_query is not supported" do
-    assert_raises(NoMethodError) do
-      ActionController::Parameters.new(foo: "bar").to_param
+  test "to_param works like in a Hash" do
+    params = ActionController::Parameters.new(nested: { key: "value" }).permit!
+    assert_equal({ nested: { key: "value" } }.to_param, params.to_param)
+
+    params = { root: ActionController::Parameters.new(nested: { key: "value" }).permit! }
+    assert_equal({ root: { nested: { key: "value" } } }.to_param, params.to_param)
+
+    assert_raise(ActionController::UnfilteredParameters) do
+      ActionController::Parameters.new(nested: { key: "value" }).to_param
+    end
+  end
+
+  test "to_query works like in a Hash" do
+    params = ActionController::Parameters.new(nested: { key: "value" }).permit!
+    assert_equal({ nested: { key: "value" } }.to_query, params.to_query)
+
+    params = { root: ActionController::Parameters.new(nested: { key: "value" }).permit! }
+    assert_equal({ root: { nested: { key: "value" } } }.to_query, params.to_query)
+
+    assert_raise(ActionController::UnfilteredParameters) do
+      ActionController::Parameters.new(nested: { key: "value" }).to_query
     end
   end
 end

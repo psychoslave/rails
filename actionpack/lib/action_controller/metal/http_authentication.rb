@@ -1,10 +1,13 @@
+# frozen_string_literal: true
+
 require "base64"
 require "active_support/security_utils"
+require "active_support/core_ext/array/access"
 
 module ActionController
-  # Makes it dead easy to do HTTP Basic, Digest and Token authentication.
+  # HTTP Basic, Digest and Token authentication.
   module HttpAuthentication
-    # Makes it dead easy to do HTTP \Basic authentication.
+    # HTTP \Basic authentication.
     #
     # === Simple \Basic example
     #
@@ -22,8 +25,8 @@ module ActionController
     #
     # === Advanced \Basic example
     #
-    # Here is a more advanced \Basic example where only Atom feeds and the XML API is protected by HTTP authentication,
-    # the regular HTML interface is protected by a session approach:
+    # Here is a more advanced \Basic example where only Atom feeds and the XML API are protected by HTTP authentication.
+    # The regular HTML interface is protected by a session approach:
     #
     #   class ApplicationController < ActionController::Base
     #     before_action :set_account, :authenticate
@@ -54,8 +57,9 @@ module ActionController
     # In your integration tests, you can do something like this:
     #
     #   def test_access_granted_from_xml
-    #     @request.env['HTTP_AUTHORIZATION'] = ActionController::HttpAuthentication::Basic.encode_credentials(users(:dhh).name, users(:dhh).password)
-    #     get "/notes/1.xml"
+    #     authorization = ActionController::HttpAuthentication::Basic.encode_credentials(users(:dhh).name, users(:dhh).password)
+    #
+    #     get "/notes/1.xml", headers: { 'HTTP_AUTHORIZATION' => authorization }
     #
     #     assert_equal 200, status
     #   end
@@ -66,21 +70,22 @@ module ActionController
         extend ActiveSupport::Concern
 
         module ClassMethods
-          def http_basic_authenticate_with(options = {})
-            before_action(options.except(:name, :password, :realm)) do
-              authenticate_or_request_with_http_basic(options[:realm] || "Application") do |name, password|
-                # This comparison uses & so that it doesn't short circuit and
-                # uses `variable_size_secure_compare` so that length information
-                # isn't leaked.
-                ActiveSupport::SecurityUtils.variable_size_secure_compare(name, options[:name]) &
-                  ActiveSupport::SecurityUtils.variable_size_secure_compare(password, options[:password])
-              end
-            end
+          def http_basic_authenticate_with(name:, password:, realm: nil, **options)
+            before_action(options) { http_basic_authenticate_or_request_with name: name, password: password, realm: realm }
           end
         end
 
-        def authenticate_or_request_with_http_basic(realm = "Application", message = nil, &login_procedure)
-          authenticate_with_http_basic(&login_procedure) || request_http_basic_authentication(realm, message)
+        def http_basic_authenticate_or_request_with(name:, password:, realm: nil, message: nil)
+          authenticate_or_request_with_http_basic(realm, message) do |given_name, given_password|
+            # This comparison uses & so that it doesn't short circuit and
+            # uses `secure_compare` so that length information isn't leaked.
+            ActiveSupport::SecurityUtils.secure_compare(given_name, name) &
+              ActiveSupport::SecurityUtils.secure_compare(given_password, password)
+          end
+        end
+
+        def authenticate_or_request_with_http_basic(realm = nil, message = nil, &login_procedure)
+          authenticate_with_http_basic(&login_procedure) || request_http_basic_authentication(realm || "Application", message)
         end
 
         def authenticate_with_http_basic(&login_procedure)
@@ -99,7 +104,7 @@ module ActionController
       end
 
       def has_basic_credentials?(request)
-        request.authorization.present? && (auth_scheme(request).downcase == "basic")
+        request.authorization.present? && (auth_scheme(request).downcase == "basic") && user_name_and_password(request).length == 2
       end
 
       def user_name_and_password(request)
@@ -124,21 +129,21 @@ module ActionController
 
       def authentication_request(controller, realm, message)
         message ||= "HTTP Basic: Access denied.\n"
-        controller.headers["WWW-Authenticate"] = %(Basic realm="#{realm.tr('"'.freeze, "".freeze)}")
+        controller.headers["WWW-Authenticate"] = %(Basic realm="#{realm.tr('"', "")}")
         controller.status = 401
         controller.response_body = message
       end
     end
 
-    # Makes it dead easy to do HTTP \Digest authentication.
+    # HTTP \Digest authentication.
     #
     # === Simple \Digest example
     #
-    #   require 'digest/md5'
+    #   require "openssl"
     #   class PostsController < ApplicationController
     #     REALM = "SuperSecret"
     #     USERS = {"dhh" => "secret", #plain text password
-    #              "dap" => Digest::MD5.hexdigest(["dap",REALM,"secret"].join(":"))}  #ha1 digest password
+    #              "dap" => OpenSSL::Digest::MD5.hexdigest(["dap",REALM,"secret"].join(":"))}  #ha1 digest password
     #
     #     before_action :authenticate, except: [:index]
     #
@@ -226,12 +231,12 @@ module ActionController
       # of a plain-text password.
       def expected_response(http_method, uri, credentials, password, password_is_ha1 = true)
         ha1 = password_is_ha1 ? password : ha1(credentials, password)
-        ha2 = ::Digest::MD5.hexdigest([http_method.to_s.upcase, uri].join(":"))
-        ::Digest::MD5.hexdigest([ha1, credentials[:nonce], credentials[:nc], credentials[:cnonce], credentials[:qop], ha2].join(":"))
+        ha2 = OpenSSL::Digest::MD5.hexdigest([http_method.to_s.upcase, uri].join(":"))
+        OpenSSL::Digest::MD5.hexdigest([ha1, credentials[:nonce], credentials[:nc], credentials[:cnonce], credentials[:qop], ha2].join(":"))
       end
 
       def ha1(credentials, password)
-        ::Digest::MD5.hexdigest([credentials[:username], credentials[:realm], password].join(":"))
+        OpenSSL::Digest::MD5.hexdigest([credentials[:username], credentials[:realm], password].join(":"))
       end
 
       def encode_credentials(http_method, credentials, password, password_is_ha1)
@@ -246,7 +251,7 @@ module ActionController
       def decode_credentials(header)
         ActiveSupport::HashWithIndifferentAccess[header.to_s.gsub(/^Digest\s+/, "").split(",").map do |pair|
           key, value = pair.split("=", 2)
-          [key.strip, value.to_s.gsub(/^"|"$/, "").delete('\'')]
+          [key.strip, value.to_s.gsub(/^"|"$/, "").delete("'")]
         end]
       end
 
@@ -305,7 +310,7 @@ module ActionController
       def nonce(secret_key, time = Time.now)
         t = time.to_i
         hashed = [t, secret_key]
-        digest = ::Digest::MD5.hexdigest(hashed.join(":"))
+        digest = OpenSSL::Digest::MD5.hexdigest(hashed.join(":"))
         ::Base64.strict_encode64("#{t}:#{digest}")
       end
 
@@ -322,11 +327,11 @@ module ActionController
 
       # Opaque based on digest of secret key
       def opaque(secret_key)
-        ::Digest::MD5.hexdigest(secret_key)
+        OpenSSL::Digest::MD5.hexdigest(secret_key)
       end
     end
 
-    # Makes it dead easy to do HTTP Token authentication.
+    # HTTP Token authentication.
     #
     # Simple Token example:
     #
@@ -348,17 +353,14 @@ module ActionController
     #         authenticate_or_request_with_http_token do |token, options|
     #           # Compare the tokens in a time-constant manner, to mitigate
     #           # timing attacks.
-    #           ActiveSupport::SecurityUtils.secure_compare(
-    #             ::Digest::SHA256.hexdigest(token),
-    #             ::Digest::SHA256.hexdigest(TOKEN)
-    #           )
+    #           ActiveSupport::SecurityUtils.secure_compare(token, TOKEN)
     #         end
     #       end
     #   end
     #
     #
-    # Here is a more advanced Token example where only Atom feeds and the XML API is protected by HTTP token authentication,
-    # the regular HTML interface is protected by a session approach:
+    # Here is a more advanced Token example where only Atom feeds and the XML API are protected by HTTP token authentication.
+    # The regular HTML interface is protected by a session approach:
     #
     #   class ApplicationController < ActionController::Base
     #     before_action :set_account, :authenticate
@@ -390,10 +392,9 @@ module ActionController
     # In your integration tests, you can do something like this:
     #
     #   def test_access_granted_from_xml
-    #     get(
-    #       "/notes/1.xml", nil,
-    #       'HTTP_AUTHORIZATION' => ActionController::HttpAuthentication::Token.encode_credentials(users(:dhh).token)
-    #     )
+    #     authorization = ActionController::HttpAuthentication::Token.encode_credentials(users(:dhh).token)
+    #
+    #     get "/notes/1.xml", headers: { 'HTTP_AUTHORIZATION' => authorization }
     #
     #     assert_equal 200, status
     #   end
@@ -407,7 +408,7 @@ module ActionController
     module Token
       TOKEN_KEY = "token="
       TOKEN_REGEX = /^(Token|Bearer)\s+/
-      AUTHN_PAIR_DELIMITERS = /(?:,|;|\t+)/
+      AUTHN_PAIR_DELIMITERS = /(?:,|;|\t)/
       extend self
 
       module ControllerMethods
@@ -445,7 +446,7 @@ module ActionController
         end
       end
 
-      # Parses the token and options out of the token authorization header.
+      # Parses the token and options out of the token Authorization header.
       # The value for the Authorization header is expected to have the prefix
       # <tt>"Token"</tt> or <tt>"Bearer"</tt>. If the header looks like this:
       #   Authorization: Token token="abc", nonce="def"
@@ -475,7 +476,7 @@ module ActionController
 
       # This removes the <tt>"</tt> characters wrapping the value.
       def rewrite_param_values(array_params)
-        array_params.each { |param| (param[1] || "").gsub! %r/^"|"$/, "" }
+        array_params.each { |param| (param[1] || +"").gsub! %r/^"|"$/, "" }
       end
 
       # This method takes an authorization body and splits up the key-value
@@ -484,7 +485,7 @@ module ActionController
       def raw_params(auth)
         _raw_params = auth.sub(TOKEN_REGEX, "").split(/\s*#{AUTHN_PAIR_DELIMITERS}\s*/)
 
-        if !(_raw_params.first =~ %r{\A#{TOKEN_KEY}})
+        if !_raw_params.first&.start_with?(TOKEN_KEY)
           _raw_params[0] = "#{TOKEN_KEY}#{_raw_params.first}"
         end
 
@@ -512,7 +513,7 @@ module ActionController
       # Returns nothing.
       def authentication_request(controller, realm, message = nil)
         message ||= "HTTP Token: Access denied.\n"
-        controller.headers["WWW-Authenticate"] = %(Token realm="#{realm.tr('"'.freeze, "".freeze)}")
+        controller.headers["WWW-Authenticate"] = %(Token realm="#{realm.tr('"', "")}")
         controller.__send__ :render, plain: message, status: :unauthorized
       end
     end

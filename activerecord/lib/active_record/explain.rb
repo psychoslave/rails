@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "active_record/explain_registry"
 
 module ActiveRecord
@@ -16,7 +18,7 @@ module ActiveRecord
     # Returns a formatted string ready to be logged.
     def exec_explain(queries) # :nodoc:
       str = queries.map do |sql, binds|
-        msg = "EXPLAIN for: #{sql}"
+        msg = +"EXPLAIN for: #{sql}"
         unless binds.empty?
           msg << " "
           msg << binds.map { |attr| render_bind(attr) }.inspect
@@ -34,15 +36,19 @@ module ActiveRecord
     end
 
     private
-
       def render_bind(attr)
-        value = if attr.type.binary? && attr.value
-          "<#{attr.value_for_database.to_s.bytesize} bytes of binary data>"
+        if ActiveModel::Attribute === attr
+          value = if attr.type.binary? && attr.value
+            "<#{attr.value_for_database.to_s.bytesize} bytes of binary data>"
+          else
+            connection.type_cast(attr.value_for_database)
+          end
         else
-          connection.type_cast(attr.value_for_database)
+          value = connection.type_cast(attr)
+          attr  = nil
         end
 
-        [attr.name, value]
+        [attr&.name, value]
       end
   end
 end

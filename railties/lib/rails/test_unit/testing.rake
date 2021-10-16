@@ -1,18 +1,18 @@
+# frozen_string_literal: true
+
 gem "minitest"
 require "minitest"
-require "rails/test_unit/minitest_plugin"
+require "rails/test_unit/runner"
 
 task default: :test
 
-desc "Runs all tests in test folder"
+desc "Runs all tests in test folder except system ones"
 task :test do
-  $: << "test"
-  pattern = if ENV.key?("TEST")
-    ENV["TEST"]
+  if ENV.key?("TEST")
+    Rails::TestUnit::Runner.rake_run([ENV["TEST"]])
   else
-    "test"
+    Rails::TestUnit::Runner.rake_run
   end
-  Minitest.rake_run([pattern])
 end
 
 namespace :test do
@@ -24,27 +24,36 @@ namespace :test do
   task run: %w[test]
 
   desc "Run tests quickly, but also reset db"
-  task db: %w[db:test:prepare test]
+  task :db do
+    success = system({ "RAILS_ENV" => ENV.fetch("RAILS_ENV", "test") }, "rake", "db:test:prepare", "test")
+    success || exit(false)
+  end
 
-  ["models", "helpers", "controllers", "mailers", "integration", "jobs"].each do |name|
+  ["models", "helpers", "channels", "controllers", "mailers", "integration", "jobs", "mailboxes"].each do |name|
     task name => "test:prepare" do
-      $: << "test"
-      Minitest.rake_run(["test/#{name}"])
+      Rails::TestUnit::Runner.rake_run(["test/#{name}"])
     end
   end
 
+  desc "Runs all tests, including system tests"
+  task all: "test:prepare" do
+    Rails::TestUnit::Runner.rake_run(["test/**/*_test.rb"])
+  end
+
   task generators: "test:prepare" do
-    $: << "test"
-    Minitest.rake_run(["test/lib/generators"])
+    Rails::TestUnit::Runner.rake_run(["test/lib/generators"])
   end
 
   task units: "test:prepare" do
-    $: << "test"
-    Minitest.rake_run(["test/models", "test/helpers", "test/unit"])
+    Rails::TestUnit::Runner.rake_run(["test/models", "test/helpers", "test/unit"])
   end
 
   task functionals: "test:prepare" do
-    $: << "test"
-    Minitest.rake_run(["test/controllers", "test/mailers", "test/functional"])
+    Rails::TestUnit::Runner.rake_run(["test/controllers", "test/mailers", "test/functional"])
+  end
+
+  desc "Run system tests only"
+  task system: "test:prepare" do
+    Rails::TestUnit::Runner.rake_run(["test/system"])
   end
 end

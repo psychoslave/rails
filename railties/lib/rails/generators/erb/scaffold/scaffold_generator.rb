@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "rails/generators/erb"
 require "rails/generators/resource_helpers"
 
@@ -19,10 +21,11 @@ module Erb # :nodoc:
             template filename, File.join("app/views", controller_file_path, filename)
           end
         end
+
+        template "partial.html.erb", File.join("app/views", controller_file_path, "_#{singular_table_name}.html.erb")
       end
 
     private
-
       def available_views
         %w(index edit show new _form)
       end

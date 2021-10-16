@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActiveRecord
   module ConnectionAdapters
     module PostgreSQL
@@ -15,8 +17,8 @@ module ActiveRecord
         end
 
         # Quotes strings for use in SQL input.
-        def quote_string(s) #:nodoc:
-          @connection.escape(s)
+        def quote_string(s) # :nodoc:
+          PG::Connection.escape(s)
         end
 
         # Checks the following cases:
@@ -28,12 +30,12 @@ module ActiveRecord
         # - "schema.name".table_name
         # - "schema.name"."table.name"
         def quote_table_name(name) # :nodoc:
-          @quoted_table_names[name] ||= Utils.extract_schema_qualified_name(name.to_s).quoted.freeze
+          self.class.quoted_table_names[name] ||= Utils.extract_schema_qualified_name(name.to_s).quoted.freeze
         end
 
         # Quotes schema names for use in SQL queries.
         def quote_schema_name(name)
-          PGconn.quote_ident(name)
+          PG::Connection.quote_ident(name)
         end
 
         def quote_table_name_for_assignment(table, attr)
@@ -42,11 +44,11 @@ module ActiveRecord
 
         # Quotes column names for use in SQL queries.
         def quote_column_name(name) # :nodoc:
-          @quoted_column_names[name] ||= PGconn.quote_ident(super).freeze
+          self.class.quoted_column_names[name] ||= PG::Connection.quote_ident(super).freeze
         end
 
         # Quote date/time values for use in SQL input.
-        def quoted_date(value) #:nodoc:
+        def quoted_date(value) # :nodoc:
           if value.year <= 0
             bce_year = format("%04d", -value.year + 1)
             super.sub(/^-?\d+/, bce_year) + " BC"
@@ -55,14 +57,18 @@ module ActiveRecord
           end
         end
 
+        def quoted_binary(value) # :nodoc:
+          "'#{escape_bytea(value.to_s)}'"
+        end
+
         def quote_default_expression(value, column) # :nodoc:
           if value.is_a?(Proc)
             value.call
-          elsif column.type == :uuid && value.include?("()")
+          elsif column.type == :uuid && value.is_a?(String) && /\(\)/.match?(value)
             value # Does not quote function default values for UUID columns
           elsif column.respond_to?(:array?)
-            value = type_cast_from_column(column, value)
-            quote(value)
+            type = lookup_cast_type_from_column(column)
+            quote(type.serialize(value))
           else
             super
           end
@@ -72,12 +78,50 @@ module ActiveRecord
           type_map.lookup(column.oid, column.fmod, column.sql_type)
         end
 
+        def column_name_matcher
+          COLUMN_NAME
+        end
+
+        def column_name_with_order_matcher
+          COLUMN_NAME_WITH_ORDER
+        end
+
+        COLUMN_NAME = /
+          \A
+          (
+            (?:
+              # "schema_name"."table_name"."column_name"::type_name | function(one or no argument)::type_name
+              ((?:\w+\.|"\w+"\.){,2}(?:\w+|"\w+")(?:::\w+)?) | \w+\((?:|\g<2>)\)(?:::\w+)?
+            )
+            (?:(?:\s+AS)?\s+(?:\w+|"\w+"))?
+          )
+          (?:\s*,\s*\g<1>)*
+          \z
+        /ix
+
+        COLUMN_NAME_WITH_ORDER = /
+          \A
+          (
+            (?:
+              # "schema_name"."table_name"."column_name"::type_name | function(one or no argument)::type_name
+              ((?:\w+\.|"\w+"\.){,2}(?:\w+|"\w+")(?:::\w+)?) | \w+\((?:|\g<2>)\)(?:::\w+)?
+            )
+            (?:\s+ASC|\s+DESC)?
+            (?:\s+NULLS\s+(?:FIRST|LAST))?
+          )
+          (?:\s*,\s*\g<1>)*
+          \z
+        /ix
+
+        private_constant :COLUMN_NAME, :COLUMN_NAME_WITH_ORDER
+
         private
+          def lookup_cast_type(sql_type)
+            super(query_value("SELECT #{quote(sql_type)}::regtype::oid", "SCHEMA").to_i)
+          end
 
           def _quote(value)
             case value
-            when Type::Binary::Data
-              "'#{escape_bytea(value.to_s)}'"
             when OID::Xml::Data
               "xml '#{quote_string(value.to_s)}'"
             when OID::Bit::Data
@@ -86,14 +130,16 @@ module ActiveRecord
               elsif value.hex?
                 "X'#{value}'"
               end
-            when Float
-              if value.infinite? || value.nan?
-                "'#{value}'"
-              else
+            when Numeric
+              if value.finite?
                 super
+              else
+                "'#{value}'"
               end
             when OID::Array::Data
               _quote(encode_array(value))
+            when Range
+              _quote(encode_range(value))
             else
               super
             end
@@ -103,13 +149,15 @@ module ActiveRecord
             case value
             when Type::Binary::Data
               # Return a bind param hash with format as binary.
-              # See http://deveiate.org/code/pg/PGconn.html#method-i-exec_prepared-doc
+              # See https://deveiate.org/code/pg/PG/Connection.html#method-i-exec_prepared-doc
               # for more information
               { value: value.to_s, format: 1 }
             when OID::Xml::Data, OID::Bit::Data
               value.to_s
             when OID::Array::Data
               encode_array(value)
+            when Range
+              encode_range(value)
             else
               super
             end
@@ -126,6 +174,10 @@ module ActiveRecord
             result
           end
 
+          def encode_range(range)
+            "[#{type_cast_range_value(range.begin)},#{type_cast_range_value(range.end)}#{range.exclude_end? ? ')' : ']'}"
+          end
+
           def determine_encoding_of_strings_in_array(value)
             case value
             when ::Array then determine_encoding_of_strings_in_array(value.first)
@@ -138,6 +190,14 @@ module ActiveRecord
             when ::Array then values.map { |item| type_cast_array(item) }
             else _type_cast(values)
             end
+          end
+
+          def type_cast_range_value(value)
+            infinity?(value) ? "" : type_cast(value)
+          end
+
+          def infinity?(value)
+            value.respond_to?(:infinite?) && value.infinite?
           end
       end
     end

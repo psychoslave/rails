@@ -1,5 +1,8 @@
+# frozen_string_literal: true
+
 ORIG_ARGV = ARGV.dup
 
+require "bundler/setup"
 require "active_support/core_ext/kernel/reporting"
 
 silence_warnings do
@@ -25,15 +28,24 @@ ActiveSupport.to_time_preserves_timezone = ENV["PRESERVE_TIMEZONES"] == "1"
 I18n.enforce_available_locales = false
 
 class ActiveSupport::TestCase
+  if Process.respond_to?(:fork) && !Gem.win_platform?
+    parallelize
+  else
+    parallelize(with: :threads)
+  end
+
   include ActiveSupport::Testing::MethodCallAssertions
 
-  # Skips the current run on Rubinius using Minitest::Assertions#skip
-  private def rubinius_skip(message = "")
-    skip message if RUBY_ENGINE == "rbx"
-  end
+  private
+    # Skips the current run on Rubinius using Minitest::Assertions#skip
+    def rubinius_skip(message = "")
+      skip message if RUBY_ENGINE == "rbx"
+    end
 
-  # Skips the current run on JRuby using Minitest::Assertions#skip
-  private def jruby_skip(message = "")
-    skip message if defined?(JRUBY_VERSION)
-  end
+    # Skips the current run on JRuby using Minitest::Assertions#skip
+    def jruby_skip(message = "")
+      skip message if defined?(JRUBY_VERSION)
+    end
 end
+
+require_relative "../../tools/test_common"

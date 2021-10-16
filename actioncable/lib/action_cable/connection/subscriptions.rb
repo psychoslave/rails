@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "active_support/core_ext/hash/indifferent_access"
 
 module ActionCable
@@ -19,6 +21,7 @@ module ActionCable
           logger.error "Received unrecognized command in #{data.inspect}"
         end
       rescue Exception => e
+        @connection.rescue_with_handler(e)
         logger.error "Could not execute command from (#{data.inspect}) [#{e.class} - #{e.message}]: #{e.backtrace.first(5).join(" | ")}"
       end
 
@@ -30,7 +33,7 @@ module ActionCable
 
         subscription_klass = id_options[:channel].safe_constantize
 
-        if subscription_klass && ActionCable::Channel::Base >= subscription_klass
+        if subscription_klass && ActionCable::Channel::Base > subscription_klass
           subscription = subscription_klass.new(connection, id_key, id_options)
           subscriptions[id_key] = subscription
           subscription.subscribe_to_channel
@@ -41,7 +44,7 @@ module ActionCable
 
       def remove(data)
         logger.info "Unsubscribing from channel: #{data['identifier']}"
-        remove_subscription subscriptions[data["identifier"]]
+        remove_subscription find(data)
       end
 
       def remove_subscription(subscription)
@@ -61,12 +64,8 @@ module ActionCable
         subscriptions.each { |id, channel| remove_subscription(channel) }
       end
 
-      # TODO Change this to private once we've dropped Ruby 2.2 support.
-      # Workaround for Ruby 2.2 "private attribute?" warning.
-      protected
-        attr_reader :connection, :subscriptions
-
       private
+        attr_reader :connection, :subscriptions
         delegate :logger, to: :connection
 
         def find(data)

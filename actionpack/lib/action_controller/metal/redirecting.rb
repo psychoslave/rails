@@ -1,9 +1,15 @@
+# frozen_string_literal: true
+
 module ActionController
   module Redirecting
     extend ActiveSupport::Concern
 
     include AbstractController::Logger
     include ActionController::UrlFor
+
+    included do
+      mattr_accessor :raise_on_open_redirects, default: false
+    end
 
     # Redirects the browser to the target specified in +options+. This parameter can be any one of:
     #
@@ -22,21 +28,21 @@ module ActionController
     #   redirect_to posts_url
     #   redirect_to proc { edit_post_url(@post) }
     #
-    # The redirection happens as a "302 Found" header unless otherwise specified using the <tt>:status</tt> option:
+    # The redirection happens as a <tt>302 Found</tt> header unless otherwise specified using the <tt>:status</tt> option:
     #
     #   redirect_to post_url(@post), status: :found
     #   redirect_to action: 'atom', status: :moved_permanently
     #   redirect_to post_url(@post), status: 301
     #   redirect_to action: 'atom', status: 302
     #
-    # The status code can either be a standard {HTTP Status code}[http://www.iana.org/assignments/http-status-codes] as an
+    # The status code can either be a standard {HTTP Status code}[https://www.iana.org/assignments/http-status-codes] as an
     # integer, or a symbol representing the downcased, underscored and symbolized description.
     # Note that the status code must be a 3xx HTTP code, or redirection will not occur.
     #
     # If you are using XHR requests other than GET or POST and redirecting after the
     # request then some browsers will follow the redirect using the original request
     # method. This may lead to undesirable behavior such as a double DELETE. To work
-    # around this  you can return a <tt>303 See Other</tt> status code which will be
+    # around this you can return a <tt>303 See Other</tt> status code which will be
     # followed using a GET request.
     #
     #   redirect_to posts_url, status: :see_other
@@ -50,54 +56,86 @@ module ActionController
     #   redirect_to post_url(@post), status: 301, flash: { updated_post_id: @post.id }
     #   redirect_to({ action: 'atom' }, alert: "Something serious happened")
     #
-    def redirect_to(options = {}, response_status = {})
+    # Statements after +redirect_to+ in our controller get executed, so +redirect_to+ doesn't stop the execution of the function.
+    # To terminate the execution of the function immediately after the +redirect_to+, use return.
+    #
+    #   redirect_to post_url(@post) and return
+    #
+    # Passing user input directly into +redirect_to+ is considered dangerous (e.g. `redirect_to(params[:location])`).
+    # Always use regular expressions or a permitted list when redirecting to a user specified location.
+    def redirect_to(options = {}, response_options = {})
+      response_options[:allow_other_host] ||= _allow_other_host unless response_options.key?(:allow_other_host)
+
       raise ActionControllerError.new("Cannot redirect to nil!") unless options
       raise AbstractController::DoubleRenderError if response_body
 
-      self.status        = _extract_redirect_to_status(options, response_status)
-      self.location      = _compute_redirect_to_location(request, options)
-      self.response_body = "<html><body>You are being <a href=\"#{ERB::Util.unwrapped_html_escape(location)}\">redirected</a>.</body></html>"
+      self.status        = _extract_redirect_to_status(options, response_options)
+      self.location      = _compute_safe_redirect_to_location(request, options, response_options)
+      self.response_body = "<html><body>You are being <a href=\"#{ERB::Util.unwrapped_html_escape(response.location)}\">redirected</a>.</body></html>"
+    end
+
+    # Soft deprecated alias for <tt>redirect_back_or_to</tt> where the fallback_location location is supplied as a keyword argument instead
+    # of the first positional argument.
+    def redirect_back(fallback_location:, allow_other_host: _allow_other_host, **args)
+      redirect_back_or_to fallback_location, allow_other_host: allow_other_host, **args
     end
 
     # Redirects the browser to the page that issued the request (the referrer)
     # if possible, otherwise redirects to the provided default fallback
     # location.
     #
-    # The referrer information is pulled from the HTTP `Referer` (sic) header on
+    # The referrer information is pulled from the HTTP +Referer+ (sic) header on
     # the request. This is an optional header and its presence on the request is
     # subject to browser security settings and user preferences. If the request
     # is missing this header, the <tt>fallback_location</tt> will be used.
     #
-    #   redirect_back fallback_location: { action: "show", id: 5 }
-    #   redirect_back fallback_location: @post
-    #   redirect_back fallback_location: "http://www.rubyonrails.org"
-    #   redirect_back fallback_location: "/images/screenshot.jpg"
-    #   redirect_back fallback_location: posts_url
-    #   redirect_back fallback_location: proc { edit_post_url(@post) }
+    #   redirect_back_or_to({ action: "show", id: 5 })
+    #   redirect_back_or_to @post
+    #   redirect_back_or_to "http://www.rubyonrails.org"
+    #   redirect_back_or_to "/images/screenshot.jpg"
+    #   redirect_back_or_to posts_url
+    #   redirect_back_or_to proc { edit_post_url(@post) }
+    #   redirect_back_or_to '/', allow_other_host: false
     #
-    # All options that can be passed to <tt>redirect_to</tt> are accepted as
+    # ==== Options
+    # * <tt>:allow_other_host</tt> - Allow or disallow redirection to the host that is different to the current host, defaults to true.
+    #
+    # All other options that can be passed to #redirect_to are accepted as
     # options and the behavior is identical.
-    def redirect_back(fallback_location:, **args)
-      if referer = request.headers["Referer"]
-        redirect_to referer, **args
+    def redirect_back_or_to(fallback_location, allow_other_host: _allow_other_host, **options)
+      location = request.referer || fallback_location
+      location = fallback_location unless allow_other_host || _url_host_allowed?(request.referer)
+      allow_other_host = true if _allow_other_host && !allow_other_host # if the fallback is an open redirect
+
+      redirect_to location, allow_other_host: allow_other_host, **options
+    end
+
+    def _compute_safe_redirect_to_location(request, options, response_options)
+      location = _compute_redirect_to_location(request, options)
+
+      if response_options[:allow_other_host] || _url_host_allowed?(location)
+        location
       else
-        redirect_to fallback_location, **args
+        raise(ArgumentError, <<~MSG.squish)
+          Unsafe redirect #{location.truncate(100).inspect},
+          use :allow_other_host to redirect anyway.
+        MSG
       end
     end
 
-    def _compute_redirect_to_location(request, options) #:nodoc:
+    def _compute_redirect_to_location(request, options) # :nodoc:
       case options
       # The scheme name consist of a letter followed by any combination of
       # letters, digits, and the plus ("+"), period ("."), or hyphen ("-")
       # characters; and is terminated by a colon (":").
-      # See http://tools.ietf.org/html/rfc3986#section-3.1
+      # See https://tools.ietf.org/html/rfc3986#section-3.1
       # The protocol relative scheme starts with a double slash "//".
-      when /\A([a-z][a-z\d\-+\.]*:|\/\/).*/i
-        options
+      when /\A([a-z][a-z\d\-+.]*:|\/\/).*/i
+        options.to_str
       when String
         request.protocol + request.host_with_port + options
       when Proc
-        _compute_redirect_to_location request, options.call
+        _compute_redirect_to_location request, instance_eval(&options)
       else
         url_for(options)
       end.delete("\0\r\n")
@@ -106,14 +144,24 @@ module ActionController
     public :_compute_redirect_to_location
 
     private
-      def _extract_redirect_to_status(options, response_status)
+      def _allow_other_host
+        !raise_on_open_redirects
+      end
+
+      def _extract_redirect_to_status(options, response_options)
         if options.is_a?(Hash) && options.key?(:status)
           Rack::Utils.status_code(options.delete(:status))
-        elsif response_status.key?(:status)
-          Rack::Utils.status_code(response_status[:status])
+        elsif response_options.key?(:status)
+          Rack::Utils.status_code(response_options[:status])
         else
           302
         end
+      end
+
+      def _url_host_allowed?(url)
+        URI(url.to_s).host == request.host
+      rescue ArgumentError, URI::Error
+        false
       end
   end
 end

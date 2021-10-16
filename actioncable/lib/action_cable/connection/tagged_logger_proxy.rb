@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActionCable
   module Connection
     # Allows the use of per-connection tags against the server logger. This wouldn't work using the traditional
@@ -16,10 +18,10 @@ module ActionCable
         @tags = @tags.uniq
       end
 
-      def tag(logger)
+      def tag(logger, &block)
         if logger.respond_to?(:tagged)
           current_tags = tags - logger.formatter.current_tags
-          logger.tagged(*current_tags) { yield }
+          logger.tagged(*current_tags, &block)
         else
           yield
         end

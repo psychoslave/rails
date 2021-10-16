@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "isolation/abstract_unit"
 
 class LoadingTest < ActiveSupport::TestCase
@@ -30,6 +32,22 @@ class LoadingTest < ActiveSupport::TestCase
     assert_equal "omg", p.title
     p = Post.first
     assert_equal "omg", p.title
+  end
+
+  test "constants without a matching file raise NameError" do
+    app_file "app/models/post.rb", <<-RUBY
+      class Post
+        NON_EXISTING_CONSTANT
+      end
+    RUBY
+
+    boot_app
+
+    e = assert_raise(NameError) { User }
+    assert_match "uninitialized constant #{self.class}::User", e.message
+
+    e = assert_raise(NameError) { Post }
+    assert_match "uninitialized constant Post::NON_EXISTING_CONSTANT", e.message
   end
 
   test "concerns in app are autoloaded" do
@@ -98,7 +116,7 @@ class LoadingTest < ActiveSupport::TestCase
     RUBY
 
     app_file "app/models/post.rb", <<-MODEL
-      class Post < ActiveRecord::Base
+      class Post < ApplicationRecord
       end
     MODEL
 
@@ -115,14 +133,19 @@ class LoadingTest < ActiveSupport::TestCase
     require "#{rails_root}/config/environment"
     setup_ar!
 
-    assert_equal [ActiveRecord::SchemaMigration, ActiveRecord::InternalMetadata], ActiveRecord::Base.descendants
+    initial = [
+      ActiveStorage::Record, ActiveStorage::Blob, ActiveStorage::Attachment,
+      ActiveRecord::SchemaMigration, ActiveRecord::InternalMetadata, ApplicationRecord
+    ].collect(&:to_s).sort
+
+    assert_equal initial, ActiveRecord::Base.descendants.collect(&:to_s).sort.uniq
     get "/load"
-    assert_equal [ActiveRecord::SchemaMigration, ActiveRecord::InternalMetadata, Post], ActiveRecord::Base.descendants
+    assert_equal [Post].collect(&:to_s).sort, ActiveRecord::Base.descendants.collect(&:to_s).sort - initial
     get "/unload"
-    assert_equal [ActiveRecord::SchemaMigration, ActiveRecord::InternalMetadata], ActiveRecord::Base.descendants
+    assert_equal ["ActiveRecord::InternalMetadata", "ActiveRecord::SchemaMigration"], ActiveRecord::Base.descendants.collect(&:to_s).sort.uniq
   end
 
-  test "initialize cant be called twice" do
+  test "initialize can't be called twice" do
     require "#{app_path}/config/environment"
     assert_raise(RuntimeError) { Rails.application.initialize! }
   end
@@ -268,6 +291,30 @@ class LoadingTest < ActiveSupport::TestCase
     assert_equal "7", last_response.body
   end
 
+  test "routes are only loaded once on boot" do
+    add_to_config <<-RUBY
+      config.cache_classes = false
+    RUBY
+
+    app_file "config/routes.rb", <<-RUBY
+      $counter ||= 0
+      $counter += 1
+      Rails.application.routes.draw do
+        get '/c', to: lambda { |env| [200, {"Content-Type" => "text/plain"}, [$counter.to_s]] }
+      end
+    RUBY
+
+    boot_app "development"
+
+    require "rack/test"
+    extend Rack::Test::Methods
+
+    require "#{rails_root}/config/environment"
+
+    get "/c"
+    assert_equal "1", last_response.body
+  end
+
   test "columns migrations also trigger reloading" do
     add_to_config <<-RUBY
       config.cache_classes = false
@@ -298,7 +345,7 @@ class LoadingTest < ActiveSupport::TestCase
       end
     MIGRATION
 
-    Dir.chdir(app_path) { `rake db:migrate` }
+    rails("db:migrate")
     require "#{rails_root}/config/environment"
 
     get "/title"
@@ -312,7 +359,7 @@ class LoadingTest < ActiveSupport::TestCase
       end
     MIGRATION
 
-    Dir.chdir(app_path) { `rake db:migrate` }
+    rails("db:migrate")
 
     get "/body"
     assert_equal "BODY", last_response.body
@@ -350,15 +397,92 @@ class LoadingTest < ActiveSupport::TestCase
   def test_initialize_can_be_called_at_any_time
     require "#{app_path}/config/application"
 
-    assert !Rails.initialized?
-    assert !Rails.application.initialized?
+    assert_not_predicate Rails, :initialized?
+    assert_not_predicate Rails.application, :initialized?
     Rails.initialize!
-    assert Rails.initialized?
-    assert Rails.application.initialized?
+    assert_predicate Rails, :initialized?
+    assert_predicate Rails.application, :initialized?
+  end
+
+  test "frameworks aren't loaded during initialization" do
+    app_file "config/initializers/raise_when_frameworks_load.rb", <<-RUBY
+      %i(action_controller action_mailer active_job active_record action_view).each do |framework|
+        ActiveSupport.on_load(framework) { raise "\#{framework} loaded!" }
+      end
+    RUBY
+
+    assert_nothing_raised do
+      require "#{app_path}/config/environment"
+    end
+  end
+
+  test "active record query cache hooks are installed before first request in production" do
+    app_file "app/controllers/omg_controller.rb", <<-RUBY
+      begin
+        class OmgController < ActionController::Metal
+          ActiveSupport.run_load_hooks(:action_controller, self)
+          def show
+            if ActiveRecord::Base.connection.query_cache_enabled
+              self.response_body = ["Query cache is enabled."]
+            else
+              self.response_body = ["Expected ActiveRecord::Base.connection.query_cache_enabled to be true"]
+            end
+          end
+        end
+      rescue => e
+        puts "Error loading metal: \#{e.class} \#{e.message}"
+      end
+    RUBY
+
+    app_file "config/routes.rb", <<-RUBY
+      Rails.application.routes.draw do
+        get "/:controller(/:action)"
+      end
+    RUBY
+
+    boot_app "production"
+
+    require "rack/test"
+    extend Rack::Test::Methods
+
+    get "/omg/show"
+    assert_equal "Query cache is enabled.", last_response.body
+  end
+
+  test "active record query cache hooks are installed before first request in development" do
+    app_file "app/controllers/omg_controller.rb", <<-RUBY
+      begin
+        class OmgController < ActionController::Metal
+          ActiveSupport.run_load_hooks(:action_controller, self)
+          def show
+            if ActiveRecord::Base.connection.query_cache_enabled
+              self.response_body = ["Query cache is enabled."]
+            else
+              self.response_body = ["Expected ActiveRecord::Base.connection.query_cache_enabled to be true"]
+            end
+          end
+        end
+      rescue => e
+        puts "Error loading metal: \#{e.class} \#{e.message}"
+      end
+    RUBY
+
+    app_file "config/routes.rb", <<-RUBY
+      Rails.application.routes.draw do
+        get "/:controller(/:action)"
+      end
+    RUBY
+
+    boot_app "development"
+
+    require "rack/test"
+    extend Rack::Test::Methods
+
+    get "/omg/show"
+    assert_equal "Query cache is enabled.", last_response.body
   end
 
   private
-
     def setup_ar!
       ActiveRecord::Base.establish_connection(adapter: "sqlite3", database: ":memory:")
       ActiveRecord::Migration.verbose = false
@@ -367,5 +491,13 @@ class LoadingTest < ActiveSupport::TestCase
           t.string :title
         end
       end
+    end
+
+    def boot_app(env = "development")
+      ENV["RAILS_ENV"] = env
+
+      require "#{app_path}/config/environment"
+    ensure
+      ENV.delete "RAILS_ENV"
     end
 end

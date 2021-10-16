@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 desc "Generate a cryptographically secure secret key (this is typically used to generate a secret for cookie sessions)."
 task :secret do
   require "securerandom"
@@ -10,7 +12,7 @@ task about: :environment do
 end
 
 namespace :time do
-  desc "List all time zones, list by two-letter country code (`rails time:zones[US]`), or list by UTC offset (`rails time:zones[-8]`)"
+  desc "List all time zones, list by two-letter country code (`bin/rails time:zones[US]`), or list by UTC offset (`bin/rails time:zones[-8]`)"
   task :zones, :country_or_offset do |t, args|
     zones, offset = ActiveSupport::TimeZone.all, nil
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "bigdecimal/util"
 
 module ActiveModel
@@ -15,14 +17,19 @@ module ActiveModel
       end
 
       private
-
         def cast_value(value)
           casted_value = \
             case value
             when ::Float
               convert_float_to_big_decimal(value)
-            when ::Numeric, ::String
+            when ::Numeric
               BigDecimal(value, precision || BIGDECIMAL_PRECISION)
+            when ::String
+              begin
+                value.to_d
+              rescue ArgumentError
+                BigDecimal(0)
+              end
             else
               if value.respond_to?(:to_d)
                 value.to_d

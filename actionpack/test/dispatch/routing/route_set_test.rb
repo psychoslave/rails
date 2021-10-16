@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "abstract_unit"
 
 module ActionDispatch
@@ -27,14 +29,14 @@ module ActionDispatch
         assert_not empty?
       end
 
-      test "url helpers are added when route is added" do
+      test "URL helpers are added when route is added" do
         draw do
           get "foo", to: SimpleApp.new("foo#index")
         end
 
         assert_equal "/foo", url_helpers.foo_path
         assert_raises NoMethodError do
-          assert_equal "/bar", url_helpers.bar_path
+          url_helpers.bar_path
         end
 
         draw do
@@ -46,7 +48,7 @@ module ActionDispatch
         assert_equal "/bar", url_helpers.bar_path
       end
 
-      test "url helpers are updated when route is updated" do
+      test "URL helpers are updated when route is updated" do
         draw do
           get "bar", to: SimpleApp.new("bar#index"), as: :bar
         end
@@ -60,7 +62,7 @@ module ActionDispatch
         assert_equal "/baz", url_helpers.bar_path
       end
 
-      test "url helpers are removed when route is removed" do
+      test "URL helpers are removed when route is removed" do
         draw do
           get "foo", to: SimpleApp.new("foo#index")
           get "bar", to: SimpleApp.new("bar#index")
@@ -75,7 +77,7 @@ module ActionDispatch
 
         assert_equal "/foo", url_helpers.foo_path
         assert_raises NoMethodError do
-          assert_equal "/bar", url_helpers.bar_path
+          url_helpers.bar_path
         end
       end
 
@@ -93,7 +95,7 @@ module ActionDispatch
         end
 
         assert_raises ArgumentError do
-          assert_equal "http://example.com/foo", url_helpers.foo_url(only_path: false)
+          url_helpers.foo_url(only_path: false)
         end
       end
 
@@ -136,6 +138,31 @@ module ActionDispatch
         assert_equal "/users/1", url_helpers.user_path(1)
         assert_equal "/users/1", url_helpers.user_path(1, foo: nil)
         assert_equal "/a/users/1", url_helpers.user_path(1, foo: "a")
+      end
+
+      test "implicit path components consistently return the same result" do
+        draw do
+          resources :users, to: SimpleApp.new("foo#index")
+        end
+        assert_equal "/users/1.json", url_helpers.user_path(1, :json)
+        assert_equal "/users/1.json", url_helpers.user_path(1, format: :json)
+        assert_equal "/users/1.json", url_helpers.user_path(1, :json)
+      end
+
+      test "escape new line for dynamic params" do
+        draw do
+          get "/dynamic/:dynamic_segment", to: SimpleApp.new("foo#index"), as: :dynamic
+        end
+
+        assert_equal "/dynamic/a%0Anewline", url_helpers.dynamic_path(dynamic_segment: "a\nnewline")
+      end
+
+      test "escape new line for wildcard params" do
+        draw do
+          get "/wildcard/*wildcard_segment", to: SimpleApp.new("foo#index"), as: :wildcard
+        end
+
+        assert_equal "/wildcard/a%0Anewline", url_helpers.wildcard_path(wildcard_segment: "a\nnewline")
       end
 
       private

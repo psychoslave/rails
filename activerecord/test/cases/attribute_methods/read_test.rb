@@ -1,4 +1,7 @@
+# frozen_string_literal: true
+
 require "cases/helper"
+require "active_support/core_ext/enumerable"
 
 module ActiveRecord
   module AttributeMethods
@@ -8,13 +11,10 @@ module ActiveRecord
       end
 
       def setup
-        @klass = Class.new do
+        @klass = Class.new(Class.new { def self.initialize_generated_modules; end }) do
           def self.superclass; Base; end
-          def self.base_class; self; end
-          def self.decorate_matching_attribute_types(*); end
-          def self.initialize_generated_modules; end
+          def self.base_class?; true; end
 
-          include ActiveRecord::DefineCallbacks
           include ActiveRecord::AttributeMethods
 
           def self.attribute_names
@@ -29,9 +29,9 @@ module ActiveRecord
           end
 
           def self.columns_hash
-            Hash[attribute_names.map { |name|
-              [name, FakeColumn.new(name)]
-            }]
+            attribute_names.index_with { |name|
+              FakeColumn.new(name)
+            }
           end
         end
       end

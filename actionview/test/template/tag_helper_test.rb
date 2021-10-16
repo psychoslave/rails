@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "abstract_unit"
 
 class TagHelperTest < ActionView::TestCase
@@ -19,6 +21,7 @@ class TagHelperTest < ActionView::TestCase
   def test_tag_builder_void_tag
     assert_equal "<br>", tag.br
     assert_equal "<br class=\"some_class\">", tag.br(class: "some_class")
+    assert_equal "<svg><use href=\"#cool-icon\"></svg>", tag.svg { tag.use("href" => "#cool-icon") }
   end
 
   def test_tag_builder_void_tag_with_forced_content
@@ -33,6 +36,24 @@ class TagHelperTest < ActionView::TestCase
     str = tag("p", "class" => "show", :class => "elsewhere")
     assert_match(/class="show"/, str)
     assert_match(/class="elsewhere"/, str)
+  end
+
+  def test_tag_options_with_array_of_numeric
+    str = tag(:input, value: [123, 456])
+
+    assert_equal("<input value=\"123 456\" />", str)
+  end
+
+  def test_tag_options_with_array_of_random_objects
+    klass = Class.new do
+      def to_s
+        "hello"
+      end
+    end
+
+    str = tag(:input, value: [klass.new])
+
+    assert_equal("<input value=\"hello\" />", str)
   end
 
   def test_tag_options_rejects_nil_option
@@ -68,18 +89,31 @@ class TagHelperTest < ActionView::TestCase
   end
 
   def test_tag_options_converts_boolean_option
-    assert_dom_equal '<p disabled="disabled" itemscope="itemscope" multiple="multiple" readonly="readonly" allowfullscreen="allowfullscreen" seamless="seamless" typemustmatch="typemustmatch" sortable="sortable" default="default" inert="inert" truespeed="truespeed" />',
-      tag("p", disabled: true, itemscope: true, multiple: true, readonly: true, allowfullscreen: true, seamless: true, typemustmatch: true, sortable: true, default: true, inert: true, truespeed: true)
+    assert_dom_equal '<p disabled="disabled" itemscope="itemscope" multiple="multiple" readonly="readonly" allowfullscreen="allowfullscreen" seamless="seamless" typemustmatch="typemustmatch" sortable="sortable" default="default" inert="inert" truespeed="truespeed" allowpaymentrequest="allowpaymentrequest" nomodule="nomodule" playsinline="playsinline" />',
+      tag("p", disabled: true, itemscope: true, multiple: true, readonly: true, allowfullscreen: true, seamless: true, typemustmatch: true, sortable: true, default: true, inert: true, truespeed: true, allowpaymentrequest: true, nomodule: true, playsinline: true)
   end
 
   def test_tag_builder_options_converts_boolean_option
-    assert_dom_equal '<p disabled="disabled" itemscope="itemscope" multiple="multiple" readonly="readonly" allowfullscreen="allowfullscreen" seamless="seamless" typemustmatch="typemustmatch" sortable="sortable" default="default" inert="inert" truespeed="truespeed" />',
-      tag.p(disabled: true, itemscope: true, multiple: true, readonly: true, allowfullscreen: true, seamless: true, typemustmatch: true, sortable: true, default: true, inert: true, truespeed: true)
+    assert_dom_equal '<p disabled="disabled" itemscope="itemscope" multiple="multiple" readonly="readonly" allowfullscreen="allowfullscreen" seamless="seamless" typemustmatch="typemustmatch" sortable="sortable" default="default" inert="inert" truespeed="truespeed" allowpaymentrequest="allowpaymentrequest" nomodule="nomodule" playsinline="playsinline" />',
+      tag.p(disabled: true, itemscope: true, multiple: true, readonly: true, allowfullscreen: true, seamless: true, typemustmatch: true, sortable: true, default: true, inert: true, truespeed: true, allowpaymentrequest: true, nomodule: true, playsinline: true)
+  end
+
+  def test_tag_builder_with_options_builds_p_elements
+    html = tag.with_options(id: "with-options") { |t| t.p("content") }
+
+    assert_dom_equal '<p id="with-options">content</p>', html
+  end
+
+  def test_tag_builder_do_not_modify_html_safe_options
+    html_safe_str = '"'.html_safe
+    assert_equal "<p value=\"&quot;\" />", tag("p", value: html_safe_str)
+    assert_equal '"', html_safe_str
+    assert html_safe_str.html_safe?
   end
 
   def test_content_tag
     assert_equal "<a href=\"create\">Create</a>", content_tag("a", "Create", "href" => "create")
-    assert content_tag("a", "Create", "href" => "create").html_safe?
+    assert_predicate content_tag("a", "Create", "href" => "create"), :html_safe?
     assert_equal content_tag("a", "Create", "href" => "create"),
                  content_tag("a", "Create", href: "create")
     assert_equal "<p>&lt;script&gt;evil_js&lt;/script&gt;</p>",
@@ -90,13 +124,14 @@ class TagHelperTest < ActionView::TestCase
 
   def test_tag_builder_with_content
     assert_equal "<div id=\"post_1\">Content</div>", tag.div("Content", id: "post_1")
-    assert tag.div("Content", id: "post_1").html_safe?
+    assert_predicate tag.div("Content", id: "post_1"), :html_safe?
     assert_equal tag.div("Content", id: "post_1"),
                  tag.div("Content", "id": "post_1")
     assert_equal "<p>&lt;script&gt;evil_js&lt;/script&gt;</p>",
                  tag.p("<script>evil_js</script>")
     assert_equal "<p><script>evil_js</script></p>",
                  tag.p("<script>evil_js</script>", escape_attributes: false)
+    assert_equal '<input pattern="\w+">', tag.input(pattern: /\w+/)
   end
 
   def test_tag_builder_nested
@@ -237,6 +272,99 @@ class TagHelperTest < ActionView::TestCase
     assert_equal '<p class="">limelight</p>', str
   end
 
+  def test_content_tag_with_conditional_hash_classes
+    str = content_tag("p", "limelight", class: { "song": true, "play": false })
+    assert_equal "<p class=\"song\">limelight</p>", str
+
+    str = content_tag("p", "limelight", class: [{ "song": true }, { "play": false }])
+    assert_equal "<p class=\"song\">limelight</p>", str
+
+    str = content_tag("p", "limelight", class: { song: true, play: false })
+    assert_equal "<p class=\"song\">limelight</p>", str
+
+    str = content_tag("p", "limelight", class: [{ song: true }, nil, false])
+    assert_equal "<p class=\"song\">limelight</p>", str
+
+    str = content_tag("p", "limelight", class: ["song", { foo: false }])
+    assert_equal "<p class=\"song\">limelight</p>", str
+
+    str = content_tag("p", "limelight", class: [1, 2, 3])
+    assert_equal "<p class=\"1 2 3\">limelight</p>", str
+
+    klass = Class.new do
+      def to_s
+        "1"
+      end
+    end
+
+    str = content_tag("p", "limelight", class: [klass.new])
+    assert_equal "<p class=\"1\">limelight</p>", str
+
+    str = content_tag("p", "limelight", class: { "song": true, "play": true })
+    assert_equal "<p class=\"song play\">limelight</p>", str
+
+    str = content_tag("p", "limelight", class: { "song": false, "play": false })
+    assert_equal '<p class="">limelight</p>', str
+  end
+
+  def test_tag_builder_with_conditional_hash_classes
+    str = tag.p "limelight", class: { "song": true, "play": false }
+    assert_equal "<p class=\"song\">limelight</p>", str
+
+    str = tag.p "limelight", class: [{ "song": true }, { "play": false }]
+    assert_equal "<p class=\"song\">limelight</p>", str
+
+    str = tag.p "limelight", class: { song: true, play: false }
+    assert_equal "<p class=\"song\">limelight</p>", str
+
+    str = tag.p "limelight", class: [{ song: true }, nil, false]
+    assert_equal "<p class=\"song\">limelight</p>", str
+
+    str = tag.p "limelight", class: ["song", { foo: false }]
+    assert_equal "<p class=\"song\">limelight</p>", str
+
+    str = tag.p "limelight", class: { "song": true, "play": true }
+    assert_equal "<p class=\"song play\">limelight</p>", str
+
+    str = tag.p "limelight", class: { "song": false, "play": false }
+    assert_equal '<p class="">limelight</p>', str
+  end
+
+  def test_content_tag_with_unescaped_conditional_hash_classes
+    str = content_tag("p", "limelight", { class: { "song": true, "play>": true } }, false)
+    assert_equal "<p class=\"song play>\">limelight</p>", str
+
+    str = content_tag("p", "limelight", { class: ["song", { "play>": true }] }, false)
+    assert_equal "<p class=\"song play>\">limelight</p>", str
+  end
+
+  def test_tag_builder_with_unescaped_conditional_hash_classes
+    str = tag.p "limelight", class: { "song": true, "play>": true }, escape_attributes: false
+    assert_equal "<p class=\"song play>\">limelight</p>", str
+
+    str = tag.p "limelight", class: ["song", { "play>": true }], escape_attributes: false
+    assert_equal "<p class=\"song play>\">limelight</p>", str
+  end
+
+  def test_token_list_and_class_names
+    [:token_list, :class_names].each do |helper_method|
+      helper = ->(*arguments) { public_send(helper_method, *arguments) }
+
+      assert_equal "song play", helper.(["song", { "play": true }])
+      assert_equal "song", helper.({ "song": true, "play": false })
+      assert_equal "song", helper.([{ "song": true }, { "play": false }])
+      assert_equal "song", helper.({ song: true, play: false })
+      assert_equal "song", helper.([{ song: true }, nil, false])
+      assert_equal "song", helper.(["song", { foo: false }])
+      assert_equal "song play", helper.({ "song": true, "play": true })
+      assert_equal "", helper.({ "song": false, "play": false })
+      assert_equal "123", helper.(nil, "", false, 123, { "song": false, "play": false })
+      assert_equal "song", helper.("song", "song")
+      assert_equal "song", helper.("song song")
+      assert_equal "song", helper.("song\nsong")
+    end
+  end
+
   def test_content_tag_with_data_attributes
     assert_dom_equal '<p data-number="1" data-string="hello" data-string-with-quotes="double&quot;quote&quot;party&quot;">limelight</p>',
       content_tag("p", "limelight", data: { number: 1, string: "hello", string_with_quotes: 'double"quote"party"' })
@@ -263,6 +391,30 @@ class TagHelperTest < ActionView::TestCase
   def test_escape_once
     assert_equal "1 &lt; 2 &amp; 3", escape_once("1 < 2 &amp; 3")
     assert_equal " &#X27; &#x27; &#x03BB; &#X03bb; &quot; &#39; &lt; &gt; ", escape_once(" &#X27; &#x27; &#x03BB; &#X03bb; \" ' < > ")
+  end
+
+  def test_tag_attributes_inlines_html_attributes
+    expected_output = <<~HTML.strip
+      <input type="text" name="name" aria-hidden="false" aria-label="label" data-input-value="data" required="required">
+    HTML
+
+    assert_equal expected_output, render_erb(<<~HTML.strip)
+      <input type="text" <%= tag.attributes value: nil, name: "name", "aria-hidden": false, aria: { label: "label" }, data: { input_value: "data" }, required: true %>>
+    HTML
+  end
+
+  def test_tag_attributes_escapes_values
+    assert_not_includes "<script>alert()</script>", render_erb(<<~HTML.strip)
+      <input type="text" <%= tag.attributes xss: '"><script>alert()</script>' %>>
+    HTML
+  end
+
+  def test_tag_attributes_nil
+    assert_equal %(<input type="text" >), render_erb(%(<input type="text" <%= tag.attributes nil %>>))
+  end
+
+  def test_tag_attributes_empty
+    assert_equal %(<input type="text" >), render_erb(%(<input type="text" <%= tag.attributes({}) %>>))
   end
 
   def test_tag_honors_html_safe_for_param_values
@@ -305,8 +457,8 @@ class TagHelperTest < ActionView::TestCase
 
   def test_tag_builder_disable_escaping
     assert_equal '<a href="&amp;"></a>', tag.a(href: "&amp;", escape_attributes: false)
-    assert_equal '<a href="&amp;">cnt</a>', tag.a(href: "&amp;" , escape_attributes: false) { "cnt" }
-    assert_equal '<br data-hidden="&amp;">', tag.br("data-hidden": "&amp;" , escape_attributes: false)
+    assert_equal '<a href="&amp;">cnt</a>', tag.a(href: "&amp;", escape_attributes: false) { "cnt" }
+    assert_equal '<br data-hidden="&amp;">', tag.br("data-hidden": "&amp;", escape_attributes: false)
     assert_equal '<a href="&amp;">content</a>', tag.a("content", href: "&amp;", escape_attributes: false)
     assert_equal '<a href="&amp;">content</a>', tag.a(href: "&amp;", escape_attributes: false) { "content" }
   end
@@ -314,19 +466,20 @@ class TagHelperTest < ActionView::TestCase
   def test_data_attributes
     ["data", :data].each { |data|
       assert_dom_equal '<a data-a-float="3.14" data-a-big-decimal="-123.456" data-a-number="1" data-array="[1,2,3]" data-hash="{&quot;key&quot;:&quot;value&quot;}" data-string-with-quotes="double&quot;quote&quot;party&quot;" data-string="hello" data-symbol="foo" />',
-        tag("a", data => { a_float: 3.14, a_big_decimal: BigDecimal.new("-123.456"), a_number: 1, string: "hello", symbol: :foo, array: [1, 2, 3], hash: { key: "value" }, string_with_quotes: 'double"quote"party"' })
+        tag("a", data => { a_float: 3.14, a_big_decimal: BigDecimal("-123.456"), a_number: 1, string: "hello", symbol: :foo, array: [1, 2, 3], hash: { key: "value" }, string_with_quotes: 'double"quote"party"' })
       assert_dom_equal '<a data-a-float="3.14" data-a-big-decimal="-123.456" data-a-number="1" data-array="[1,2,3]" data-hash="{&quot;key&quot;:&quot;value&quot;}" data-string-with-quotes="double&quot;quote&quot;party&quot;" data-string="hello" data-symbol="foo" />',
-        tag.a(data: { a_float: 3.14, a_big_decimal: BigDecimal.new("-123.456"), a_number: 1, string: "hello", symbol: :foo, array: [1, 2, 3], hash: { key: "value" }, string_with_quotes: 'double"quote"party"' })
+        tag.a(data: { a_float: 3.14, a_big_decimal: BigDecimal("-123.456"), a_number: 1, string: "hello", symbol: :foo, array: [1, 2, 3], hash: { key: "value" }, string_with_quotes: 'double"quote"party"' })
     }
   end
 
   def test_aria_attributes
     ["aria", :aria].each { |aria|
-      assert_dom_equal '<a aria-a-float="3.14" aria-a-big-decimal="-123.456" aria-a-number="1" aria-array="[1,2,3]" aria-hash="{&quot;key&quot;:&quot;value&quot;}" aria-string-with-quotes="double&quot;quote&quot;party&quot;" aria-string="hello" aria-symbol="foo" />',
-        tag("a", aria => { a_float: 3.14, a_big_decimal: BigDecimal.new("-123.456"), a_number: 1, string: "hello", symbol: :foo, array: [1, 2, 3], hash: { key: "value" }, string_with_quotes: 'double"quote"party"' })
-      assert_dom_equal '<a aria-a-float="3.14" aria-a-big-decimal="-123.456" aria-a-number="1" aria-array="[1,2,3]" aria-hash="{&quot;key&quot;:&quot;value&quot;}" aria-string-with-quotes="double&quot;quote&quot;party&quot;" aria-string="hello" aria-symbol="foo" />',
-        tag.a(aria: { a_float: 3.14, a_big_decimal: BigDecimal.new("-123.456"), a_number: 1, string: "hello", symbol: :foo, array: [1, 2, 3], hash: { key: "value" }, string_with_quotes: 'double"quote"party"' })
+      assert_dom_equal '<a aria-a-float="3.14" aria-a-big-decimal="-123.456" aria-a-number="1" aria-truthy="true" aria-falsey="false" aria-array="1 2 3" aria-hash="a b" aria-tokens="a b" aria-string-with-quotes="double&quot;quote&quot;party&quot;" aria-string="hello" aria-symbol="foo" />',
+        tag("a", aria => { nil: nil, a_float: 3.14, a_big_decimal: BigDecimal("-123.456"), a_number: 1, truthy: true, falsey: false, string: "hello", symbol: :foo, array: [1, 2, 3], empty_array: [], hash: { a: true, b: "truthy", falsey: false, nil: nil }, empty_hash: {}, tokens: ["a", { b: true, c: false }], empty_tokens: [{ a: false }], string_with_quotes: 'double"quote"party"' })
     }
+
+    assert_dom_equal '<a aria-a-float="3.14" aria-a-big-decimal="-123.456" aria-a-number="1" aria-truthy="true" aria-falsey="false" aria-array="1 2 3" aria-hash="a b" aria-tokens="a b" aria-string-with-quotes="double&quot;quote&quot;party&quot;" aria-string="hello" aria-symbol="foo" />',
+    tag.a(aria: { nil: nil, a_float: 3.14, a_big_decimal: BigDecimal("-123.456"), a_number: 1, truthy: true, falsey: false, string: "hello", symbol: :foo, array: [1, 2, 3], empty_array: [], hash: { a: true, b: "truthy", falsey: false, nil: nil }, empty_hash: {}, tokens: ["a", { b: true, c: false }], empty_tokens: [{ a: false }], string_with_quotes: 'double"quote"party"' })
   end
 
   def test_link_to_data_nil_equal

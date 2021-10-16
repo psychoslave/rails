@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 begin
   require "thor/group"
 rescue LoadError
@@ -16,8 +18,17 @@ module Rails
       include Thor::Actions
       include Rails::Generators::Actions
 
+      class_option :skip_namespace, type: :boolean, default: false,
+                                    desc: "Skip namespace (affects only isolated engines)"
+      class_option :skip_collision_check, type: :boolean, default: false,
+                                          desc: "Skip collision check"
+
       add_runtime_options!
       strict_args_position!
+
+      def self.exit_on_failure? # :nodoc:
+        false
+      end
 
       # Returns the source root for this generator using default_source_root as default.
       def self.source_root(path = nil)
@@ -42,7 +53,7 @@ module Rails
       # is removed.
       def self.namespace(name = nil)
         return super if name
-        @namespace ||= super.sub(/_generator$/, "").sub(/:generators:/, ":")
+        @namespace ||= super.delete_suffix("_generator").sub(/:generators:/, ":")
       end
 
       # Convenience method to hide this generator from the available ones when
@@ -68,7 +79,7 @@ module Rails
       #
       # For example, if the user invoke the controller generator as:
       #
-      #   rails generate controller Account --test-framework=test_unit
+      #   bin/rails generate controller Account --test-framework=test_unit
       #
       # The controller generator will then try to invoke the following generators:
       #
@@ -123,11 +134,11 @@ module Rails
       # All hooks come with switches for user interface. If you do not want
       # to use any test framework, you can do:
       #
-      #   rails generate controller Account --skip-test-framework
+      #   bin/rails generate controller Account --skip-test-framework
       #
       # Or similarly:
       #
-      #   rails generate controller Account --no-test-framework
+      #   bin/rails generate controller Account --no-test-framework
       #
       # ==== Boolean hooks
       #
@@ -139,7 +150,7 @@ module Rails
       #
       # Then, if you want webrat to be invoked, just supply:
       #
-      #   rails generate controller Account --webrat
+      #   bin/rails generate controller Account --webrat
       #
       # The hooks lookup is similar as above:
       #
@@ -195,7 +206,7 @@ module Rails
       end
 
       # Make class option aware of Rails::Generators.options and Rails::Generators.aliases.
-      def self.class_option(name, options = {}) #:nodoc:
+      def self.class_option(name, options = {}) # :nodoc:
         options[:desc]    = "Indicates when to generate #{name.to_s.humanize.downcase}" unless options.key?(:desc)
         options[:aliases] = default_aliases_for_option(name, options)
         options[:default] = default_value_for_option(name, options)
@@ -215,18 +226,18 @@ module Rails
       # Returns the base root for a common set of generators. This is used to dynamically
       # guess the default source root.
       def self.base_root
-        File.dirname(__FILE__)
+        __dir__
       end
 
       # Cache source root and add lib/generators/base/generator/templates to
       # source paths.
-      def self.inherited(base) #:nodoc:
+      def self.inherited(base) # :nodoc:
         super
 
         # Invoke source_root so the default_source_root is set.
         base.source_root
 
-        if base.name && base.name !~ /Base$/
+        if base.name && !base.name.end_with?("Base")
           Rails::Generators.subclasses << base
 
           Rails::Generators.templates_path.each do |path|
@@ -240,11 +251,12 @@ module Rails
       end
 
       private
-
         # Check whether the given class names are already taken by user
         # application or Ruby on Rails.
         def class_collisions(*class_names)
           return unless behavior == :invoke
+          return if options.skip_collision_check?
+          return if options.force?
 
           class_names.flatten.each do |class_name|
             class_name = class_name.to_s
@@ -257,8 +269,8 @@ module Rails
 
             if last && last.const_defined?(last_name.camelize, false)
               raise Error, "The name '#{class_name}' is either already used in your application " \
-                           "or reserved by Ruby on Rails. Please choose an alternative and run "  \
-                           "this generator again."
+                           "or reserved by Ruby on Rails. Please choose an alternative or use --skip-collision-check "  \
+                           "or --force to skip this check and run this generator again."
             end
           end
         end
@@ -271,28 +283,58 @@ module Rails
           end
         end
 
+        # Wrap block with namespace of current application
+        # if namespace exists and is not skipped
+        def module_namespacing(&block) # :doc:
+          content = capture(&block)
+          content = wrap_with_namespace(content) if namespaced?
+          concat(content)
+        end
+
+        def indent(content, multiplier = 2) # :doc:
+          spaces = " " * multiplier
+          content.each_line.map { |line| line.blank? ? line : "#{spaces}#{line}" }.join
+        end
+
+        def wrap_with_namespace(content) # :doc:
+          content = indent(content).chomp
+          "module #{namespace.name}\n#{content}\nend\n"
+        end
+
+        def namespace # :doc:
+          Rails::Generators.namespace
+        end
+
+        def namespaced? # :doc:
+          !options[:skip_namespace] && namespace
+        end
+
+        def namespace_dirs
+          @namespace_dirs ||= namespace.name.split("::").map(&:underscore)
+        end
+
+        def namespaced_path # :doc:
+          @namespaced_path ||= namespace_dirs.join("/")
+        end
+
         # Use Rails default banner.
         def self.banner # :doc:
-          "rails generate #{namespace.sub(/^rails:/, '')} #{arguments.map(&:usage).join(' ')} [options]".gsub(/\s+/, " ")
+          "rails generate #{namespace.delete_prefix("rails:")} #{arguments.map(&:usage).join(' ')} [options]".gsub(/\s+/, " ")
         end
 
         # Sets the base_name taking into account the current class namespace.
         def self.base_name # :doc:
-          @base_name ||= begin
-            if base = name.to_s.split("::").first
-              base.underscore
-            end
+          @base_name ||= if base = name.to_s.split("::").first
+            base.underscore
           end
         end
 
         # Removes the namespaces and get the generator name. For example,
         # Rails::Generators::ModelGenerator will return "model" as generator name.
         def self.generator_name # :doc:
-          @generator_name ||= begin
-            if generator = name.to_s.split("::").last
-              generator.sub!(/Generator$/, "")
-              generator.underscore
-            end
+          @generator_name ||= if generator = name.to_s.split("::").last
+            generator.delete_suffix!("Generator")
+            generator.underscore
           end
         end
 
@@ -322,13 +364,13 @@ module Rails
         end
 
         # Keep hooks configuration that are used on prepare_for_invocation.
-        def self.hooks #:nodoc:
+        def self.hooks # :nodoc:
           @hooks ||= from_superclass(:hooks, {})
         end
 
         # Prepare class invocation to search on Rails namespace if a previous
         # added hook is being used.
-        def self.prepare_for_invocation(name, value) #:nodoc:
+        def self.prepare_for_invocation(name, value) # :nodoc:
           return super unless value.is_a?(String) || value.is_a?(Symbol)
 
           if value && constants = hooks[name]

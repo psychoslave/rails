@@ -1,7 +1,7 @@
-require "active_support/rails"
+# frozen_string_literal: true
+
 require "abstract_controller"
 require "action_dispatch"
-require "action_controller/metal/live"
 require "action_controller/metal/strong_parameters"
 
 module ActionController
@@ -10,7 +10,6 @@ module ActionController
   autoload :API
   autoload :Base
   autoload :Metal
-  autoload :Middleware
   autoload :Renderer
   autoload :FormBuilder
 
@@ -20,20 +19,25 @@ module ActionController
 
   autoload_under "metal" do
     autoload :ConditionalGet
+    autoload :ContentSecurityPolicy
     autoload :Cookies
     autoload :DataStreaming
+    autoload :DefaultHeaders
     autoload :EtagWithTemplateDigest
     autoload :EtagWithFlash
+    autoload :PermissionsPolicy
     autoload :Flash
-    autoload :ForceSSL
     autoload :Head
     autoload :Helpers
     autoload :HttpAuthentication
     autoload :BasicImplicitRender
     autoload :ImplicitRender
     autoload :Instrumentation
+    autoload :Live
+    autoload :Logging
     autoload :MimeResponds
     autoload :ParamsWrapper
+    autoload :QueryTags
     autoload :Redirecting
     autoload :Renderers
     autoload :Rendering
@@ -59,5 +63,4 @@ require "active_support/core_ext/module/attribute_accessors"
 require "active_support/core_ext/load_error"
 require "active_support/core_ext/module/attr_internal"
 require "active_support/core_ext/name_error"
-require "active_support/core_ext/uri"
 require "active_support/inflector"

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "active_record/scoping/default"
 require "active_record/scoping/named"
 
@@ -13,19 +15,13 @@ module ActiveRecord
       end
 
       def table_name
-        "#{table_name_prefix}#{ActiveRecord::Base.schema_migrations_table_name}#{table_name_suffix}"
-      end
-
-      def table_exists?
-        connection.table_exists?(table_name)
+        "#{table_name_prefix}#{schema_migrations_table_name}#{table_name_suffix}"
       end
 
       def create_table
-        unless table_exists?
-          version_options = connection.internal_string_options_for_primary_key
-
+        unless connection.table_exists?(table_name)
           connection.create_table(table_name, id: false) do |t|
-            t.string :version, version_options
+            t.string :version, **connection.internal_string_options_for_primary_key
           end
         end
       end
@@ -39,7 +35,11 @@ module ActiveRecord
       end
 
       def normalized_versions
-        pluck(:version).map { |v| normalize_migration_number v }
+        all_versions.map { |v| normalize_migration_number v }
+      end
+
+      def all_versions
+        order(:version).pluck(:version)
       end
     end
 

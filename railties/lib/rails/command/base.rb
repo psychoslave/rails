@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "thor"
 require "erb"
 
@@ -12,9 +14,31 @@ module Rails
       class Error < Thor::Error # :nodoc:
       end
 
+      class CorrectableError < Error # :nodoc:
+        attr_reader :key, :options
+
+        def initialize(message, key, options)
+          @key     = key
+          @options = options
+          super(message)
+        end
+
+        if defined?(DidYouMean::SpellChecker) && defined?(DidYouMean::Correctable)
+          include DidYouMean::Correctable
+
+          def corrections
+            @corrections ||= DidYouMean::SpellChecker.new(dictionary: options).correct(key)
+          end
+        end
+      end
+
       include Actions
 
       class << self
+        def exit_on_failure? # :nodoc:
+          false
+        end
+
         # Returns true when the app is a Rails engine.
         def engine?
           defined?(ENGINE_ROOT)
@@ -26,7 +50,7 @@ module Rails
           if usage
             super
           else
-            @desc ||= ERB.new(File.read(usage_path)).result(binding) if usage_path
+            @desc ||= ERB.new(File.read(usage_path), trim_mode: "-").result(binding) if usage_path
           end
         end
 
@@ -47,41 +71,41 @@ module Rails
           Rails::Command.hidden_commands << self
         end
 
-        def inherited(base) #:nodoc:
+        def inherited(base) # :nodoc:
           super
 
-          if base.name && base.name !~ /Base$/
+          if base.name && !base.name.end_with?("Base")
             Rails::Command.subclasses << base
           end
         end
 
         def perform(command, args, config) # :nodoc:
-          command = nil if Rails::Command::HELP_MAPPINGS.include?(args.first)
+          if Rails::Command::HELP_MAPPINGS.include?(args.first)
+            command, args = "help", []
+          end
 
           dispatch(command, args.dup, nil, config)
         end
 
         def printing_commands
-          namespace.sub(/^rails:/, "")
+          namespaced_commands
         end
 
         def executable
-          "bin/rails #{command_name}"
+          "rails #{command_name}"
         end
 
         # Use Rails' default banner.
         def banner(*)
-          "#{executable} #{arguments.map(&:usage).join(' ')} [options]".squish!
+          "#{executable} #{arguments.map(&:usage).join(' ')} [options]".squish
         end
 
         # Sets the base_name taking into account the current class namespace.
         #
         #   Rails::Command::TestCommand.base_name # => 'rails'
         def base_name
-          @base_name ||= begin
-            if base = name.to_s.split("::").first
-              base.underscore
-            end
+          @base_name ||= if base = name.to_s.split("::").first
+            base.underscore
           end
         end
 
@@ -89,11 +113,9 @@ module Rails
         #
         #   Rails::Command::TestCommand.command_name # => 'test'
         def command_name
-          @command_name ||= begin
-            if command = name.to_s.split("::").last
-              command.chomp!("Command")
-              command.underscore
-            end
+          @command_name ||= if command = name.to_s.split("::").last
+            command.chomp!("Command")
+            command.underscore
           end
         end
 
@@ -108,10 +130,10 @@ module Rails
         # Default file root to place extra files a command might need, placed
         # one folder above the command file.
         #
-        # For a `Rails::Command::TestCommand` placed in `rails/command/test_command.rb`
-        # would return `rails/test`.
+        # For a Rails::Command::TestCommand placed in <tt>rails/command/test_command.rb</tt>
+        # would return <tt>rails/test</tt>.
         def default_command_root
-          path = File.expand_path(File.join("../commands", command_name), __dir__)
+          path = File.expand_path(relative_command_path, __dir__)
           path if File.exist?(path)
         end
 
@@ -127,6 +149,24 @@ module Rails
               @desc  ||= ""
 
               super
+            end
+          end
+
+          def command_root_namespace
+            (namespace.split(":") - %w(rails)).join(":")
+          end
+
+          def relative_command_path
+            File.join("../commands", *command_root_namespace.split(":"))
+          end
+
+          def namespaced_commands
+            commands.keys.map do |key|
+              if command_root_namespace.match?(/(\A|:)#{key}\z/)
+                command_root_namespace
+              else
+                "#{command_root_namespace}:#{key}"
+              end
             end
           end
       end

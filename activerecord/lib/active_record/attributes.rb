@@ -1,4 +1,6 @@
-require "active_record/attribute/user_provided_default"
+# frozen_string_literal: true
+
+require "active_model/attribute/user_provided_default"
 
 module ActiveRecord
   # See ActiveRecord::Attributes::ClassMethods for documentation
@@ -6,8 +8,7 @@ module ActiveRecord
     extend ActiveSupport::Concern
 
     included do
-      class_attribute :attributes_to_define_after_schema_loads, instance_accessor: false # :internal:
-      self.attributes_to_define_after_schema_loads = {}
+      class_attribute :attributes_to_define_after_schema_loads, instance_accessor: false, default: {} # :internal:
     end
 
     module ClassMethods
@@ -40,6 +41,9 @@ module ActiveRecord
       # +range+ (PostgreSQL only) specifies that the type should be a range (see the
       # examples below).
       #
+      # When using a symbol for +cast_type+, extra options are forwarded to the
+      # constructor of the type object.
+      #
       # ==== Examples
       #
       # The type detected by Active Record can be overridden.
@@ -56,7 +60,7 @@ module ActiveRecord
       #   store_listing = StoreListing.new(price_in_cents: '10.1')
       #
       #   # before
-      #   store_listing.price_in_cents # => BigDecimal.new(10.1)
+      #   store_listing.price_in_cents # => BigDecimal(10.1)
       #
       #   class StoreListing < ActiveRecord::Base
       #     attribute :price_in_cents, :integer
@@ -111,6 +115,16 @@ module ActiveRecord
       #       my_float_range: 1.0..3.5
       #     }
       #
+      # Passing options to the type constructor
+      #
+      #   # app/models/my_model.rb
+      #   class MyModel < ActiveRecord::Base
+      #     attribute :small_int, :integer, limit: 2
+      #   end
+      #
+      #   MyModel.create(small_int: 65537)
+      #   # => Error: 65537 is out of range for the limit of two bytes
+      #
       # ==== Creating Custom Types
       #
       # Users may also define their own custom types, as long as they respond
@@ -156,7 +170,7 @@ module ActiveRecord
       #   class Money < Struct.new(:amount, :currency)
       #   end
       #
-      #   class MoneyType < Type::Value
+      #   class MoneyType < ActiveRecord::Type::Value
       #     def initialize(currency_converter:)
       #       @currency_converter = currency_converter
       #     end
@@ -191,14 +205,31 @@ module ActiveRecord
       # tracking is performed. The methods +changed?+ and +changed_in_place?+
       # will be called from ActiveModel::Dirty. See the documentation for those
       # methods in ActiveModel::Type::Value for more details.
-      def attribute(name, cast_type = Type::Value.new, **options)
+      def attribute(name, cast_type = nil, default: NO_DEFAULT_PROVIDED, **options)
         name = name.to_s
+        name = attribute_aliases[name] || name
+
         reload_schema_from_cache
 
+        case cast_type
+        when Symbol
+          cast_type = Type.lookup(cast_type, **options, adapter: Type.adapter_name_from(self))
+        when nil
+          if (prev_cast_type, prev_default = attributes_to_define_after_schema_loads[name])
+            default = prev_default if default == NO_DEFAULT_PROVIDED
+          else
+            prev_cast_type = -> subtype { subtype }
+          end
+
+          cast_type = if block_given?
+            -> subtype { yield Proc === prev_cast_type ? prev_cast_type[subtype] : prev_cast_type }
+          else
+            prev_cast_type
+          end
+        end
+
         self.attributes_to_define_after_schema_loads =
-          attributes_to_define_after_schema_loads.merge(
-            name => [cast_type, options]
-          )
+          attributes_to_define_after_schema_loads.merge(name => [cast_type, default])
       end
 
       # This is the low level API which sits beneath +attribute+. It only
@@ -231,17 +262,13 @@ module ActiveRecord
 
       def load_schema! # :nodoc:
         super
-        attributes_to_define_after_schema_loads.each do |name, (type, options)|
-          if type.is_a?(Symbol)
-            type = ActiveRecord::Type.lookup(type, **options.except(:default))
-          end
-
-          define_attribute(name, type, **options.slice(:default))
+        attributes_to_define_after_schema_loads.each do |name, (cast_type, default)|
+          cast_type = cast_type[type_for_attribute(name)] if Proc === cast_type
+          define_attribute(name, cast_type, default: default)
         end
       end
 
       private
-
         NO_DEFAULT_PROVIDED = Object.new # :nodoc:
         private_constant :NO_DEFAULT_PROVIDED
 
@@ -249,14 +276,14 @@ module ActiveRecord
           if value == NO_DEFAULT_PROVIDED
             default_attribute = _default_attributes[name].with_type(type)
           elsif from_user
-            default_attribute = Attribute::UserProvidedDefault.new(
+            default_attribute = ActiveModel::Attribute::UserProvidedDefault.new(
               name,
               value,
               type,
               _default_attributes.fetch(name.to_s) { nil },
             )
           else
-            default_attribute = Attribute.from_database(name, value, type)
+            default_attribute = ActiveModel::Attribute.from_database(name, value, type)
           end
           _default_attributes[name] = default_attribute
         end

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class AbstractCompany < ActiveRecord::Base
   self.abstract_class = true
 end
@@ -7,13 +9,19 @@ class Company < AbstractCompany
 
   validates_presence_of :name
 
+  has_one :account, foreign_key: "firm_id"
   has_one :dummy_account, foreign_key: "firm_id", class_name: "Account"
   has_many :contracts
   has_many :developers, through: :contracts
+  has_many :special_contracts, -> { includes(:special_developer).where.not("developers.id": nil) }
+  has_many :special_developers, through: :special_contracts
+  has_many :comments, foreign_key: "company"
+
+  alias_attribute :new_name, :name
+  attribute :metadata, :json
 
   scope :of_first_firm, lambda {
-    joins(account: :firm).
-    where("firms.id" => 1)
+    joins(account: :firm).where("companies.id": 1)
   }
 
   def arbitrary_method
@@ -21,7 +29,6 @@ class Company < AbstractCompany
   end
 
   private
-
     def private_method
       "I am Jack's innermost fears and aspirations"
     end
@@ -85,6 +92,8 @@ class Firm < Company
 
   has_many :association_with_references, -> { references(:foo) }, class_name: "Client"
 
+  has_many :developers_with_select, -> { select("id, name, first_name") }, class_name: "Developer"
+
   has_one :lead_developer, class_name: "Developer"
   has_many :projects
 
@@ -103,7 +112,7 @@ class Firm < Company
 end
 
 class DependentFirm < Company
-  has_one :account, foreign_key: "firm_id", dependent: :nullify
+  has_one :account, -> { order(:id) }, foreign_key: "firm_id", dependent: :nullify
   has_many :companies, foreign_key: "client_of", dependent: :nullify
   has_one :company, foreign_key: "client_of", dependent: :nullify
 end
@@ -116,6 +125,12 @@ end
 class RestrictedWithErrorFirm < Company
   has_one :account, -> { order("id") }, foreign_key: "firm_id", dependent: :restrict_with_error
   has_many :companies, -> { order("id") }, foreign_key: "client_of", dependent: :restrict_with_error
+end
+
+class Agency < Firm
+  has_many :projects, foreign_key: :firm_id
+
+  accepts_nested_attributes_for :projects
 end
 
 class Client < Company
@@ -139,6 +154,21 @@ class Client < Company
   attr_accessor :raise_on_save
   before_save do
     raise RaisedOnSave if raise_on_save
+  end
+
+  attr_accessor :throw_on_save
+  before_save do
+    throw :abort if throw_on_save
+  end
+
+  attr_accessor :rollback_on_save
+  after_save do
+    raise ActiveRecord::Rollback if rollback_on_save
+  end
+
+  attr_accessor :rollback_on_create_called
+  after_rollback(on: :create) do |client|
+    client.rollback_on_create_called = true
   end
 
   class RaisedOnDestroy < RuntimeError; end
@@ -170,19 +200,12 @@ class Client < Company
 
   def overwrite_to_raise
   end
-
-  class << self
-    private
-
-    def private_method
-      "darkness"
-    end
-  end
 end
 
 class ExclusivelyDependentFirm < Company
   has_one :account, foreign_key: "firm_id", dependent: :delete
   has_many :dependent_sanitized_conditional_clients_of_firm, -> { order("id").where("name = 'BigShot Inc.'") }, foreign_key: "client_of", class_name: "Client", dependent: :delete_all
+  has_many :dependent_hash_conditional_clients_of_firm, -> { order("id").where(name: "BigShot Inc.") }, foreign_key: "client_of", class_name: "Client", dependent: :delete_all
   has_many :dependent_conditional_clients_of_firm, -> { order("id").where("name = ?", "BigShot Inc.") }, foreign_key: "client_of", class_name: "Client", dependent: :delete_all
 end
 
@@ -192,37 +215,12 @@ end
 class VerySpecialClient < SpecialClient
 end
 
-class Account < ActiveRecord::Base
-  belongs_to :firm, class_name: "Company"
-  belongs_to :unautosaved_firm, foreign_key: "firm_id", class_name: "Firm", autosave: false
+class NewlyContractedCompany < Company
+  has_many :new_contracts, foreign_key: "company_id"
 
-  alias_attribute :available_credit, :credit_limit
-
-  def self.destroyed_account_ids
-    @destroyed_account_ids ||= Hash.new { |h, k| h[k] = [] }
+  before_save do
+    self.new_contracts << NewContract.new
   end
-
-  # Test private kernel method through collection proxy using has_many.
-  def self.open
-    where("firm_name = ?", "37signals")
-  end
-
-  before_destroy do |account|
-    if account.firm
-      Account.destroyed_account_ids[account.firm.id] << account.id
-    end
-    true
-  end
-
-  validate :check_empty_credit_limit
-
-  private
-
-    def check_empty_credit_limit
-      errors.add("credit_limit", :blank) if credit_limit.blank?
-    end
-
-    def private_method
-      "Sir, yes sir!"
-    end
 end
+
+require "models/account"

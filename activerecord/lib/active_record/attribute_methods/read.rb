@@ -1,45 +1,22 @@
+# frozen_string_literal: true
+
 module ActiveRecord
   module AttributeMethods
     module Read
       extend ActiveSupport::Concern
 
-      module ClassMethods
+      module ClassMethods # :nodoc:
         private
-
-          # We want to generate the methods via module_eval rather than
-          # define_method, because define_method is slower on dispatch.
-          # Evaluating many similar methods may use more memory as the instruction
-          # sequences are duplicated and cached (in MRI).  define_method may
-          # be slower on dispatch, but if you're careful about the closure
-          # created, then define_method will consume much less memory.
-          #
-          # But sometimes the database might return columns with
-          # characters that are not allowed in normal method names (like
-          # 'my_column(omg)'. So to work around this we first define with
-          # the __temp__ identifier, and then use alias method to rename
-          # it to what we want.
-          #
-          # We are also defining a constant to hold the frozen string of
-          # the attribute name. Using a constant means that we do not have
-          # to allocate an object on each call to the attribute method.
-          # Making it frozen means that it doesn't get duped when used to
-          # key the @attributes in read_attribute.
-          def define_method_attribute(name)
-            safe_name = name.unpack("h*".freeze).first
-            temp_method = "__temp__#{safe_name}"
-
-            ActiveRecord::AttributeMethods::AttrNames.set_name_cache safe_name, name
-
-            generated_attribute_methods.module_eval <<-STR, __FILE__, __LINE__ + 1
-              def #{temp_method}
-                name = ::ActiveRecord::AttributeMethods::AttrNames::ATTR_#{safe_name}
-                _read_attribute(name) { |n| missing_attribute(n, caller) }
+          def define_method_attribute(name, owner:)
+            ActiveModel::AttributeMethods::AttrNames.define_attribute_accessor_method(
+              owner, name
+            ) do |temp_method_name, attr_name_expr|
+              owner.define_cached_method(name, as: temp_method_name, namespace: :active_record) do |batch|
+                batch <<
+                  "def #{temp_method_name}" <<
+                  "  _read_attribute(#{attr_name_expr}) { |n| missing_attribute(n, caller) }" <<
+                  "end"
               end
-            STR
-
-            generated_attribute_methods.module_eval do
-              alias_method name, temp_method
-              undef_method temp_method
             end
           end
       end
@@ -48,28 +25,17 @@ module ActiveRecord
       # it has been typecast (for example, "2004-12-12" in a date column is cast
       # to a date object, like Date.new(2004, 12, 12)).
       def read_attribute(attr_name, &block)
-        name = if self.class.attribute_alias?(attr_name)
-          self.class.attribute_alias(attr_name).to_s
-        else
-          attr_name.to_s
-        end
+        name = attr_name.to_s
+        name = self.class.attribute_aliases[name] || name
 
-        name = self.class.primary_key if name == "id".freeze
-        _read_attribute(name, &block)
+        name = @primary_key if name == "id" && @primary_key
+        @attributes.fetch_value(name, &block)
       end
 
       # This method exists to avoid the expensive primary_key check internally, without
       # breaking compatibility with the read_attribute API
-      if defined?(JRUBY_VERSION)
-        # This form is significantly faster on JRuby, and this is one of our biggest hotspots.
-        # https://github.com/jruby/jruby/pull/2562
-        def _read_attribute(attr_name, &block) # :nodoc
-          @attributes.fetch_value(attr_name.to_s, &block)
-        end
-      else
-        def _read_attribute(attr_name) # :nodoc:
-          @attributes.fetch_value(attr_name.to_s) { |n| yield n if block_given? }
-        end
+      def _read_attribute(attr_name, &block) # :nodoc:
+        @attributes.fetch_value(attr_name, &block)
       end
 
       alias :attribute :_read_attribute

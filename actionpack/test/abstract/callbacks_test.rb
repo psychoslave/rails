@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "abstract_unit"
 
 module AbstractController
@@ -42,7 +44,7 @@ module AbstractController
       def aroundz
         @aroundz = "FIRST"
         yield
-        @aroundz << "SECOND"
+        @aroundz += "SECOND"
       end
 
       def index
@@ -152,7 +154,49 @@ module AbstractController
 
       test "when :except is specified, an after action is not triggered on that action" do
         @controller.process(:index)
-        assert !@controller.instance_variable_defined?("@authenticated")
+        assert_not @controller.instance_variable_defined?("@authenticated")
+      end
+    end
+
+    class CallbacksWithReusedConditions < ControllerWithCallbacks
+      options = { only: :index }
+      before_action :list, options
+      before_action :authenticate, options
+
+      def index
+        self.response_body = @list.join(", ")
+      end
+
+      def public_data
+        @authenticated = "false"
+        self.response_body = @authenticated
+      end
+
+      private
+        def list
+          @list = ["Hello", "World"]
+        end
+
+        def authenticate
+          @list ||= []
+          @authenticated = "true"
+        end
+    end
+
+    class TestCallbacksWithReusedConditions < ActiveSupport::TestCase
+      def setup
+        @controller = CallbacksWithReusedConditions.new
+      end
+
+      test "when :only is specified, both actions triggered on that action" do
+        @controller.process(:index)
+        assert_equal "Hello, World", @controller.response_body
+        assert_equal "true", @controller.instance_variable_get("@authenticated")
+      end
+
+      test "when :only is specified, both actions are not triggered on other actions" do
+        @controller.process(:public_data)
+        assert_equal "false", @controller.response_body
       end
     end
 
@@ -196,7 +240,7 @@ module AbstractController
 
       test "when :except is specified with an array, an after action is not triggered on that action" do
         @controller.process(:index)
-        assert !@controller.instance_variable_defined?("@authenticated")
+        assert_not @controller.instance_variable_defined?("@authenticated")
       end
     end
 

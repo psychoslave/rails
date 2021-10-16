@@ -1,6 +1,6 @@
+# frozen_string_literal: true
+
 require "active_support/core_ext/array/extract_options"
-require "active_support/core_ext/hash/keys"
-require "active_support/core_ext/hash/except"
 
 module ActiveModel
   # == Active \Model \Validations
@@ -15,7 +15,7 @@ module ActiveModel
   #     attr_accessor :first_name, :last_name
   #
   #     validates_each :first_name, :last_name do |record, attr, value|
-  #       record.errors.add attr, 'starts with z.' if value.to_s[0] == ?z
+  #       record.errors.add attr, "starts with z." if value.start_with?("z")
   #     end
   #   end
   #
@@ -49,8 +49,7 @@ module ActiveModel
       private :validation_context=
       define_callbacks :validate, scope: :name
 
-      class_attribute :_validators, instance_writer: false
-      self._validators = Hash.new { |h, k| h[k] = [] }
+      class_attribute :_validators, instance_writer: false, default: Hash.new { |h, k| h[k] = [] }
     end
 
     module ClassMethods
@@ -62,7 +61,7 @@ module ActiveModel
       #     attr_accessor :first_name, :last_name
       #
       #     validates_each :first_name, :last_name, allow_blank: true do |record, attr, value|
-      #       record.errors.add attr, 'starts with z.' if value.to_s[0] == ?z
+      #       record.errors.add attr, "starts with z." if value.start_with?("z")
       #     end
       #   end
       #
@@ -119,7 +118,7 @@ module ActiveModel
       #     end
       #   end
       #
-      # Or with a block where self points to the current record to be validated:
+      # Or with a block where +self+ points to the current record to be validated:
       #
       #   class Comment
       #     include ActiveModel::Validations
@@ -147,10 +146,13 @@ module ActiveModel
       #   or <tt>unless: Proc.new { |user| user.signup_step <= 2 }</tt>). The
       #   method, proc or string should return or evaluate to a +true+ or +false+
       #   value.
+      #
+      # NOTE: Calling +validate+ multiple times on the same method will overwrite previous definitions.
+      #
       def validate(*args, &block)
         options = args.extract_options!
 
-        if args.all? { |arg| arg.is_a?(Symbol) }
+        if args.all?(Symbol)
           options.each_key do |k|
             unless VALID_OPTIONS_FOR_VALIDATE.include?(k)
               raise ArgumentError.new("Unknown key: #{k.inspect}. Valid keys are: #{VALID_OPTIONS_FOR_VALIDATE.map(&:inspect).join(', ')}. Perhaps you meant to call `validates` instead of `validate`?")
@@ -160,14 +162,14 @@ module ActiveModel
 
         if options.key?(:on)
           options = options.dup
-          options[:if] = Array(options[:if])
-          options[:if].unshift ->(o) {
-            !(Array(options[:on]) & Array(o.validation_context)).empty?
-          }
+          options[:on] = Array(options[:on])
+          options[:if] = [
+            ->(o) { !(options[:on] & Array(o.validation_context)).empty? },
+            *options[:if]
+          ]
         end
 
-        args << options
-        set_callback(:validate, *args, &block)
+        set_callback(:validate, *args, options, &block)
       end
 
       # List all validators that are being used to validate the model using
@@ -270,7 +272,7 @@ module ActiveModel
       end
 
       # Copy validators on inheritance.
-      def inherited(base) #:nodoc:
+      def inherited(base) # :nodoc:
         dup = _validators.dup
         base._validators = dup.each { |k, v| dup[k] = v.dup }
         super
@@ -278,7 +280,7 @@ module ActiveModel
     end
 
     # Clean the +Errors+ object if instance is duped.
-    def initialize_dup(other) #:nodoc:
+    def initialize_dup(other) # :nodoc:
       @errors = nil
       super
     end
@@ -400,7 +402,6 @@ module ActiveModel
     alias :read_attribute_for_validation :send
 
   private
-
     def run_validations!
       _run_validate_callbacks
       errors.empty?
@@ -432,4 +433,4 @@ module ActiveModel
   end
 end
 
-Dir[File.dirname(__FILE__) + "/validations/*.rb"].each { |file| require file }
+Dir[File.expand_path("validations/*.rb", __dir__)].each { |file| require file }

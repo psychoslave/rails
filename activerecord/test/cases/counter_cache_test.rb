@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "cases/helper"
 require "models/topic"
 require "models/car"
@@ -14,6 +16,7 @@ require "models/friendship"
 require "models/subscriber"
 require "models/subscription"
 require "models/book"
+require "active_support/core_ext/enumerable"
 
 class CounterCacheTest < ActiveRecord::TestCase
   fixtures :topics, :categories, :categorizations, :cars, :dogs, :dog_lovers, :people, :friendships, :subscribers, :subscriptions, :books
@@ -142,7 +145,7 @@ class CounterCacheTest < ActiveRecord::TestCase
 
   test "update other counters on parent destroy" do
     david, joanna = dog_lovers(:david, :joanna)
-    joanna = joanna # squelch a warning
+    _ = joanna # squelch a warning
 
     assert_difference "joanna.reload.dogs_count", -1 do
       david.destroy
@@ -261,7 +264,7 @@ class CounterCacheTest < ActiveRecord::TestCase
   test "reset multiple counters with touch: true" do
     assert_touching @topic, :updated_at do
       Topic.update_counters(@topic.id, replies_count: 1, unique_replies_count: 1)
-      Topic.reset_counters(@topic.id, :replies, :unique_replies, touch: true)
+      Topic.reset_counters(@topic.id, :replies, :unique_replies, touch: { time: Time.now.utc })
     end
   end
 
@@ -278,38 +281,38 @@ class CounterCacheTest < ActiveRecord::TestCase
   end
 
   test "update counters with touch: :written_on" do
-    assert_touching @topic, :written_on do
+    assert_touching @topic, :updated_at, :written_on do
       Topic.update_counters(@topic.id, replies_count: -1, touch: :written_on)
     end
   end
 
   test "update multiple counters with touch: :written_on" do
-    assert_touching @topic, :written_on do
+    assert_touching @topic, :updated_at, :written_on do
       Topic.update_counters(@topic.id, replies_count: 2, unique_replies_count: 2, touch: :written_on)
     end
   end
 
   test "reset counters with touch: :written_on" do
-    assert_touching @topic, :written_on do
+    assert_touching @topic, :updated_at, :written_on do
       Topic.reset_counters(@topic.id, :replies, touch: :written_on)
     end
   end
 
   test "reset multiple counters with touch: :written_on" do
-    assert_touching @topic, :written_on do
+    assert_touching @topic, :updated_at, :written_on do
       Topic.update_counters(@topic.id, replies_count: 1, unique_replies_count: 1)
       Topic.reset_counters(@topic.id, :replies, :unique_replies, touch: :written_on)
     end
   end
 
   test "increment counters with touch: :written_on" do
-    assert_touching @topic, :written_on do
+    assert_touching @topic, :updated_at, :written_on do
       Topic.increment_counter(:replies_count, @topic.id, touch: :written_on)
     end
   end
 
   test "decrement counters with touch: :written_on" do
-    assert_touching @topic, :written_on do
+    assert_touching @topic, :updated_at, :written_on do
       Topic.decrement_counter(:replies_count, @topic.id, touch: :written_on)
     end
   end
@@ -353,8 +356,8 @@ class CounterCacheTest < ActiveRecord::TestCase
 
   private
     def assert_touching(record, *attributes)
-      record.update_columns attributes.map { |attr| [ attr, 5.minutes.ago ] }.to_h
-      touch_times = attributes.map { |attr| [ attr, record.public_send(attr) ] }.to_h
+      record.update_columns attributes.index_with(5.minutes.ago)
+      touch_times = attributes.index_with { |attr| record.public_send(attr) }
 
       yield
 

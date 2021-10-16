@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "abstract_controller/error"
 require "active_support/configurable"
 require "active_support/descendants_tracker"
@@ -7,6 +9,21 @@ require "active_support/core_ext/module/attr_internal"
 module AbstractController
   # Raised when a non-existing controller action is triggered.
   class ActionNotFound < StandardError
+    attr_reader :controller, :action # :nodoc:
+
+    def initialize(message = nil, controller = nil, action = nil) # :nodoc:
+      @controller = controller
+      @action = action
+      super(message)
+    end
+
+    if defined?(DidYouMean::Correctable) && defined?(DidYouMean::SpellChecker)
+      include DidYouMean::Correctable # :nodoc:
+
+      def corrections # :nodoc:
+        @corrections ||= DidYouMean::SpellChecker.new(dictionary: controller.class.action_methods).correct(action)
+      end
+    end
   end
 
   # AbstractController::Base is a low-level API. Nobody should be
@@ -14,8 +31,16 @@ module AbstractController
   # expected to provide their own +render+ method, since rendering means
   # different things depending on the context.
   class Base
+    ##
+    # Returns the body of the HTTP response sent by the controller.
     attr_internal :response_body
+
+    ##
+    # Returns the name of the action this controller is processing.
     attr_internal :action_name
+
+    ##
+    # Returns the formats that can be processed by the controller.
     attr_internal :formats
 
     include ActiveSupport::Configurable
@@ -68,7 +93,9 @@ module AbstractController
             # Except for public instance methods of Base and its ancestors
             internal_methods +
             # Be sure to include shadowed public instance methods of this class
-            public_instance_methods(false)).uniq.map(&:to_s)
+            public_instance_methods(false))
+
+          methods.map!(&:to_s)
 
           methods.to_set
         end
@@ -92,7 +119,7 @@ module AbstractController
       # ==== Returns
       # * <tt>String</tt>
       def controller_path
-        @controller_path ||= name.sub(/Controller$/, "".freeze).underscore unless anonymous?
+        @controller_path ||= name.delete_suffix("Controller").underscore unless anonymous?
       end
 
       # Refresh the cached action_methods when a new action_method is added.
@@ -116,7 +143,7 @@ module AbstractController
       @_action_name = action.to_s
 
       unless action_name = _find_action_name(@_action_name)
-        raise ActionNotFound, "The action '#{action}' could not be found for #{self.class.name}"
+        raise ActionNotFound.new("The action '#{action}' could not be found for #{self.class.name}", self, action)
       end
 
       @_response_body = nil
@@ -163,15 +190,16 @@ module AbstractController
       true
     end
 
-    private
+    def inspect # :nodoc:
+      "#<#{self.class.name}:#{'%#016x' % (object_id << 1)}>"
+    end
 
+    private
       # Returns true if the name can be considered an action because
       # it has a method defined in the controller.
       #
       # ==== Parameters
       # * <tt>name</tt> - The name of an action to be tested
-      #
-      # :api: private
       def action_method?(name)
         self.class.action_methods.include?(name)
       end

@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
 
 require "kindlerb"
 require "nokogiri"
@@ -16,7 +17,7 @@ module Kindle
       puts "=> Arranging html pages in document order"
       toc = File.read("toc.ncx")
       doc = Nokogiri::XML(toc).xpath("//ncx:content", "ncx" => "http://www.daisy.org/z3986/2005/ncx/")
-      html_pages = doc.select { |c| c[:src] }.map { |c| c[:src] }.uniq
+      html_pages = doc.filter_map { |c| c[:src] }.uniq
 
       generate_front_matter(html_pages)
 
@@ -34,8 +35,8 @@ module Kindle
   def generate_front_matter(html_pages)
     frontmatter = []
     html_pages.delete_if { |x|
-      if x =~ /(toc|welcome|credits|copyright).html/
-        frontmatter << x unless x =~ /toc/
+      if /(toc|welcome|copyright).html/.match?(x)
+        frontmatter << x unless /toc/.match?(x)
         true
       end
     }
@@ -57,9 +58,9 @@ module Kindle
   end
 
   def generate_sections(html_pages)
-    FileUtils::rm_rf("sections/")
+    FileUtils.rm_rf("sections/")
     html_pages.each_with_index do |page, section_idx|
-      FileUtils::mkdir_p("sections/%03d" % section_idx)
+      FileUtils.mkdir_p("sections/%03d" % section_idx)
       doc = Nokogiri::HTML(File.open(page))
       title = doc.at("title").inner_text.gsub("Ruby on Rails Guides: ", "")
       title = page.capitalize.gsub(".html", "") if title.strip == ""

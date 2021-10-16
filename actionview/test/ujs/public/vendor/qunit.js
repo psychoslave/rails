@@ -42,7 +42,7 @@ var QUnit,
 	 * with IE 7 (and prior) where Error.prototype.toString is
 	 * not properly implemented
 	 *
-	 * Based on http://es5.github.com/#x15.11.4.4
+	 * Based on https://es5.github.io/#x15.11.4.4
 	 *
 	 * @param {String|Error} error
 	 * @return {String} error message
@@ -1896,7 +1896,7 @@ QUnit.equiv = (function() {
  * http://flesler.blogspot.com Licensed under BSD
  * (http://www.opensource.org/licenses/bsd-license.php) Date: 5/15/2008
  *
- * @projectDescription Advanced and extensible data dumping for Javascript.
+ * @projectDescription Advanced and extensible data dumping for JavaScript.
  * @version 1.0.0
  * @author Ariel Flesler
  * @link {http://flesler.blogspot.com/2008/05/jsdump-pretty-dump-of-any-javascript.html}
@@ -2123,7 +2123,7 @@ QUnit.jsDump = (function() {
 }());
 
 /*
- * Javascript Diff Algorithm
+ * JavaScript Diff Algorithm
  *  By John Resig (http://ejohn.org/)
  *  Modified by Chu Alan "sprite"
  *

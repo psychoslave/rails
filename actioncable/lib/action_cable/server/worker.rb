@@ -1,5 +1,8 @@
+# frozen_string_literal: true
+
 require "active_support/callbacks"
 require "active_support/core_ext/module/attribute_accessors_per_thread"
+require "action_cable/server/worker/active_record_connection_management"
 require "concurrent"
 
 module ActionCable
@@ -16,6 +19,7 @@ module ActionCable
 
       def initialize(max_size: 5)
         @executor = Concurrent::ThreadPoolExecutor.new(
+          name: "ActionCable",
           min_threads: 1,
           max_threads: max_size,
           max_queue: 0,
@@ -32,12 +36,10 @@ module ActionCable
         @executor.shuttingdown?
       end
 
-      def work(connection)
+      def work(connection, &block)
         self.connection = connection
 
-        run_callbacks :work do
-          yield
-        end
+        run_callbacks :work, &block
       ensure
         self.connection = nil
       end
@@ -54,19 +56,16 @@ module ActionCable
 
       def invoke(receiver, method, *args, connection:, &block)
         work(connection) do
-          begin
-            receiver.send method, *args, &block
-          rescue Exception => e
-            logger.error "There was an exception - #{e.class}(#{e.message})"
-            logger.error e.backtrace.join("\n")
+          receiver.send method, *args, &block
+        rescue Exception => e
+          logger.error "There was an exception - #{e.class}(#{e.message})"
+          logger.error e.backtrace.join("\n")
 
-            receiver.handle_exception if receiver.respond_to?(:handle_exception)
-          end
+          receiver.handle_exception if receiver.respond_to?(:handle_exception)
         end
       end
 
       private
-
         def logger
           ActionCable.server.logger
         end

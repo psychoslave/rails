@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "cases/helper"
 require "support/schema_dumping_helper"
 
@@ -12,13 +14,9 @@ class PostgresqlLtreeTest < ActiveRecord::PostgreSQLTestCase
 
     enable_extension!("ltree", @connection)
 
-    @connection.transaction do
-      @connection.create_table("ltrees") do |t|
-        t.ltree "path"
-      end
+    @connection.create_table("ltrees") do |t|
+      t.ltree "path"
     end
-  rescue ActiveRecord::StatementInvalid
-    skip "do not test on PG without ltree"
   end
 
   teardown do
@@ -29,10 +27,10 @@ class PostgresqlLtreeTest < ActiveRecord::PostgreSQLTestCase
     column = Ltree.columns_hash["path"]
     assert_equal :ltree, column.type
     assert_equal "ltree", column.sql_type
-    assert_not column.array?
+    assert_not_predicate column, :array?
 
     type = Ltree.type_for_attribute("path")
-    assert_not type.binary?
+    assert_not_predicate type, :binary?
   end
 
   def test_write

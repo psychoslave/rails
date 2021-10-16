@@ -1,4 +1,7 @@
+# frozen_string_literal: true
+
 require "abstract_unit"
+require "active_support/core_ext/array/access"
 
 module BareMetalTest
   class BareController < ActionController::Metal
@@ -11,7 +14,7 @@ module BareMetalTest
     test "response body is a Rack-compatible response" do
       status, headers, body = BareController.action(:index).call(Rack::MockRequest.env_for("/"))
       assert_equal 200, status
-      string = ""
+      string = +""
 
       body.each do |part|
         assert part.is_a?(String), "Each part of the body must be a String"
@@ -78,6 +81,11 @@ module BareMetalTest
       head 102
     end
 
+    def early_hints
+      self.content_type = "text/html"
+      head 103
+    end
+
     def no_content
       self.content_type = "text/html"
       head 204
@@ -114,6 +122,12 @@ module BareMetalTest
 
     test "head :processing (102) does not return a content-type header" do
       headers = HeadController.action(:processing).call(Rack::MockRequest.env_for("/")).second
+      assert_nil headers["Content-Type"]
+      assert_nil headers["Content-Length"]
+    end
+
+    test "head :early_hints (103) does not return a content-type header" do
+      headers = HeadController.action(:early_hints).call(Rack::MockRequest.env_for("/")).second
       assert_nil headers["Content-Type"]
       assert_nil headers["Content-Length"]
     end

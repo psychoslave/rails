@@ -1,18 +1,18 @@
-*   Mime type: allow to custom content type when setting body in headers
-    and attachments.
+*   `email_address_with_name` returns just the address if name is blank.
 
-    Example:
+    *Thomas Hutterer*
 
-        def test_emails
-          attachments["invoice.pdf"] = "This is test File content"
-          mail(body: "Hello there", content_type: "text/html")
-        end
 
-    *Minh Quy*
+## Rails 7.0.0.alpha2 (September 15, 2021) ##
 
-*   Exception handling: use `rescue_from` to handle exceptions raised by
-    mailer actions, by message delivery, and by deferred delivery jobs.
+*   No changes.
 
-    *Jeremy Daer*
 
-Please check [5-0-stable](https://github.com/rails/rails/blob/5-0-stable/actionmailer/CHANGELOG.md) for previous changes.
+## Rails 7.0.0.alpha1 (September 15, 2021) ##
+
+*   Configures a default of 5 for both `open_timeout` and `read_timeout` for SMTP Settings.
+
+    *André Luis Leal Cardoso Junior*
+
+
+Please check [6-1-stable](https://github.com/rails/rails/blob/6-1-stable/actionmailer/CHANGELOG.md) for previous changes.

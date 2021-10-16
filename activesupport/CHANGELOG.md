@@ -1,374 +1,286 @@
-*   Changed `ActiveSupport::Inflector#transliterate` to raise `ArgumentError` when it receives
-    anything except a string.
+*   `ActiveSupport::Inflector::Inflections#clear(:acronyms)` is now supported,
+    and `inflector.clear` / `inflector.clear(:all)` also clears acronyms.
 
-    *Kevin McPhillips*
+    *Alex Ghiculescu*, *Oliver Peate*
 
-*   Fixed bugs that `StringInquirer#respond_to_missing?` and
-    `ArrayInquirer#respond_to_missing?` do not fallback to `super`.
 
-    *Akira Matsuda*
+## Rails 7.0.0.alpha2 (September 15, 2021) ##
 
-*   Fix inconsistent results when parsing large durations and constructing durations from code
+*   No changes.
 
-        ActiveSupport::Duration.parse('P3Y') == 3.years # It should be true
 
-    Duration parsing made independent from any moment of time:
-    Fixed length in seconds is assigned to each duration part during parsing.
+## Rails 7.0.0.alpha1 (September 15, 2021) ##
 
-    Changed duration of months and years in seconds to more accurate and logical:
-
-     1. The value of 365.2425 days in Gregorian year is more accurate
-        as it accounts for every 400th non-leap year.
-
-     2. Month's length is bound to year's duration, which makes
-        sensible comparisons like `12.months == 1.year` to be `true`
-        and nonsensical ones like `30.days == 1.month` to be `false`.
-
-    Calculations on times and dates with durations shouldn't be affected as
-    duration's numeric value isn't used in calculations, only parts are used.
-
-    Methods on `Numeric` like `2.days` now use these predefined durations
-    to avoid duplicating of duration constants through the codebase and
-    eliminate creation of intermediate durations.
-
-    *Andrey Novikov, Andrew White*
-
-*   Change return value of `Rational#duplicable?`, `ComplexClass#duplicable?`
-    to false.
-
-    *utilum*
-
-*   Change return value of `NilClass#duplicable?`, `FalseClass#duplicable?`,
-    `TrueClass#duplicable?`, `Symbol#duplicable?` and `Numeric#duplicable?`
-    to true with Ruby 2.4+. These classes can dup with Ruby 2.4+.
-
-    *Yuji Yaginuma*
-
-*   Remove deprecated class `ActiveSupport::Concurrency::Latch`
-
-    *Andrew White*
-
-*   Remove deprecated separator argument from `parameterize`
-
-    *Andrew White*
-
-*   Remove deprecated method `Numeric#to_formatted_s`
-
-    *Andrew White*
-
-*   Remove deprecated method `alias_method_chain`
-
-    *Andrew White*
-
-*   Remove deprecated constant `MissingSourceFile`
-
-    *Andrew White*
-
-*   Remove deprecated methods `Module.qualified_const_defined?`,
-    `Module.qualified_const_get` and `Module.qualified_const_set`
-
-    *Andrew White*
-
-*   Remove deprecated `:prefix` option from `number_to_human_size`
-
-    *Andrew White*
-
-*   Remove deprecated method `ActiveSupport::HashWithIndifferentAccess.new_from_hash_copying_default`
-
-    *Andrew White*
-
-*   Remove deprecated file `active_support/core_ext/time/marshal.rb`
-
-    *Andrew White*
-
-*   Remove deprecated file `active_support/core_ext/struct.rb`
-
-    *Andrew White*
-
-*   Remove deprecated file `active_support/core_ext/module/method_transplanting.rb`
-
-    *Andrew White*
-
-*   Remove deprecated method `Module.local_constants`
-
-    *Andrew White*
-
-*   Remove deprecated file `active_support/core_ext/kernel/debugger.rb`
-
-    *Andrew White*
-
-*   Remove deprecated method `ActiveSupport::Cache::Store#namespaced_key`
-
-    *Andrew White*
-
-*   Remove deprecated method `ActiveSupport::Cache::Strategy::LocalCache::LocalStore#set_cache_value`
-
-    *Andrew White*
-
-*   Remove deprecated method `ActiveSupport::Cache::MemCacheStore#escape_key`
-
-    *Andrew White*
-
-*   Remove deprecated method `ActiveSupport::Cache::FileStore#key_file_path`
-
-    *Andrew White*
-
-*   Ensure duration parsing is consistent across DST changes
-
-    Previously `ActiveSupport::Duration.parse` used `Time.current` and
-    `Time#advance` to calculate the number of seconds in the duration
-    from an arbitrary collection of parts. However as `advance` tries to
-    be consistent across DST boundaries this meant that either the
-    duration was shorter or longer depending on the time of year.
-
-    This was fixed by using an absolute reference point in UTC which
-    isn't subject to DST transitions. An arbitrary date of Jan 1st, 2000
-    was chosen for no other reason that it seemed appropriate.
-
-    Additionally, duration parsing should now be marginally faster as we
-    are no longer creating instances of `ActiveSupport::TimeWithZone`
-    every time we parse a duration string.
-
-    Fixes #26941.
-
-    *Andrew White*
-
-*   Use `Hash#compact` and `Hash#compact!` from Ruby 2.4. Old Ruby versions
-    will continue to get these methods from Active Support as before.
-
-    *Prathamesh Sonpatki*
-
-*   Fix `ActiveSupport::TimeZone#strptime`.
-    Support for timestamps in format of seconds (%s) and milliseconds (%Q).
-
-    Fixes #26840.
-
-    *Lev Denisov*
-
-*   Fix `DateAndTime::Calculations#copy_time_to`. Copy `nsec` instead of `usec`.
-
-    Jumping forward or backward between weeks now preserves nanosecond digits.
-
-    *Josua Schmid*
-
-*   Fix `ActiveSupport::TimeWithZone#in` across DST boundaries.
-
-    Previously calls to `in` were being sent to the non-DST aware
-    method `Time#since` via `method_missing`. It is now aliased to
-    the DST aware `ActiveSupport::TimeWithZone#+` which handles
-    transitions across DST boundaries, e.g:
-
-        Time.zone = "US/Eastern"
-
-        t = Time.zone.local(2016,11,6,1)
-        # => Sun, 06 Nov 2016 01:00:00 EDT -05:00
-
-        t.in(1.hour)
-        # => Sun, 06 Nov 2016 01:00:00 EST -05:00
-
-    Fixes #26580.
-
-    *Thomas Balthazar*
-
-*   Remove unused parameter `options = nil` for `#clear` of
-    `ActiveSupport::Cache::Strategy::LocalCache::LocalStore` and
-    `ActiveSupport::Cache::Strategy::LocalCache`.
-
-    *Yosuke Kabuto*
-
-*   Fix `thread_mattr_accessor` subclass no longer overwrites parent.
-
-    Assigning a value to a subclass using `thread_mattr_accessor` no
-    longer changes the value of the parent class. This brings the
-    behavior inline with the documentation.
-
-    Given:
-
-        class Account
-          thread_mattr_accessor :user
-        end
-
-        class Customer < Account
-        end
-
-        Account.user = "DHH"
-        Customer.user = "Rafael"
-
-    Before:
-
-        Account.user  # => "Rafael"
-
-    After:
-
-        Account.user  # => "DHH"
-
-    *Shinichi Maeshima*
-
-*   Since weeks are no longer converted to days, add `:weeks` to the list of
-    parts that `ActiveSupport::TimeWithZone` will recognize as possibly being
-    of variable duration to take account of DST transitions.
-
-    Fixes #26039.
-
-    *Andrew White*
-
-*   Defines `Regexp.match?` for Ruby versions prior to 2.4. The predicate
-    has the same interface, but it does not have the performance boost. Its
-    purpose is to be able to write 2.4 compatible code.
+*   `ActiveSupport::Dependencies` no longer installs a `const_missing` hook. Before this, you could push to the autoload paths and have constants autoloaded. This feature, known as the `classic` autoloader, has been removed.
 
     *Xavier Noria*
 
-*   Allow `MessageEncryptor` to take advantage of authenticated encryption modes.
+*   Private internal classes of `ActiveSupport::Dependencies` have been deleted, like `ActiveSupport::Dependencies::Reference`, `ActiveSupport::Dependencies::Blamable`, and others.
 
-    AEAD modes like `aes-256-gcm` provide both confidentiality and data
-    authenticity, eliminating the need to use `MessageVerifier` to check if the
-    encrypted data has been tampered with. This speeds up encryption/decryption
-    and results in shorter cipher text.
+    *Xavier Noria*
 
-    *Bart de Water*
+*   The private API of `ActiveSupport::Dependencies` has been deleted. That includes methods like `hook!`, `unhook!`, `depend_on`, `require_or_load`, `mechanism`, and many others.
 
-*   Introduce `assert_changes` and `assert_no_changes`.
+    *Xavier Noria*
 
-    `assert_changes` is a more general `assert_difference` that works with any
-    value.
+*   Improves the performance of `ActiveSupport::NumberHelper` formatters by avoiding the use of exceptions as flow control.
 
-        assert_changes 'Error.current', from: nil, to: 'ERR' do
-          expected_bad_operation
-        end
+    *Mike Dalessio*
 
-    Can be called with strings, to be evaluated in the binding (context) of
-    the block given to the assertion, or a lambda.
+*   Removed rescue block from `ActiveSupport::Cache::RedisCacheStore#handle_exception`
 
-        assert_changes -> { Error.current }, from: nil, to: 'ERR' do
-          expected_bad_operation
-        end
+    Previously, if you provided a `error_handler` to `redis_cache_store`, any errors thrown by
+    the error handler would be rescued and logged only. Removed the `rescue` clause from `handle_exception`
+    to allow these to be thrown.
 
-    The `from` and `to` arguments are compared with the case operator (`===`).
+    *Nicholas A. Stuart*
 
-        assert_changes 'Error.current', from: nil, to: Error do
-          expected_bad_operation
-        end
+*   Allow entirely opting out of deprecation warnings.
 
-    This is pretty useful, if you need to loosely compare a value. For example,
-    you need to test a token has been generated and it has that many random
-    characters.
+    Previously if you did `app.config.active_support.deprecation = :silence`, some work would
+    still be done on each call to `ActiveSupport::Deprecation.warn`. In very hot paths, this could
+    cause performance issues.
 
-        user = User.start_registration
-        assert_changes 'user.token', to: /\w{32}/ do
-          user.finish_registration
-        end
+    Now, you can make `ActiveSupport::Deprecation.warn` a no-op:
 
-    *Genadi Samokovarov*
+    ```ruby
+    config.active_support.report_deprecations = false
+    ```
 
-*   Fix `ActiveSupport::TimeZone#strptime`. Now raises `ArgumentError` when the
-    given time doesn't match the format. The error is the same as the one given
-    by Ruby's `Date.strptime`. Previously it raised
-    `NoMethodError: undefined method empty? for nil:NilClass.` due to a bug.
+    This is the default in production for new apps. It is the equivalent to:
 
-    Fixes #25701.
+    ```ruby
+    config.active_support.deprecation = :silence
+    config.active_support.disallowed_deprecation = :silence
+    ```
 
-    *John Gesimondo*
+    but will take a more optimised code path.
 
-*   `travel/travel_to` travel time helpers, now raise on nested calls,
-     as this can lead to confusing time stubbing.
+    *Alex Ghiculescu*
 
-     Instead of:
+*   Faster tests by parallelizing only when overhead is justified by the number
+    of them.
 
-         travel_to 2.days.from_now do
-           # 2 days from today
-           travel_to 3.days.from_now do
-             # 5 days from today
-           end
-         end
+    Running tests in parallel adds overhead in terms of database
+    setup and fixture loading. Now, Rails will only parallelize test executions when
+    there are enough tests to make it worth it.
 
-     preferred way to achieve above is:
+    This threshold is 50 by default, and is configurable via config setting in
+    your test.rb:
 
-         travel 2.days do
-           # 2 days from today
-         end
+    ```ruby
+    config.active_support.test_parallelization_threshold = 100
+    ```
 
-         travel 5.days do
-           # 5 days from today
-         end
+    It's also configurable at the test case level:
 
-     *Vipul A M*
+    ```ruby
+    class ActiveSupport::TestCase
+      parallelize threshold: 100
+    end
+    ```
 
-*   Support parsing JSON time in ISO8601 local time strings in
-    `ActiveSupport::JSON.decode` when `parse_json_times` is enabled.
-    Strings in the format of `YYYY-MM-DD hh:mm:ss` (without a `Z` at
-    the end) will be parsed in the local timezone (`Time.zone`). In
-    addition, date strings (`YYYY-MM-DD`) are now parsed into `Date`
-    objects.
+    *Jorge Manrubia*
 
-    *Grzegorz Witek*
+*   OpenSSL constants are now used for Digest computations.
 
-*   Fixed `ActiveSupport::Logger.broadcast` so that calls to `#silence` now
-    properly delegate to all loggers. Silencing now properly suppresses logging
-    to both the log and the console.
+    *Dirkjan Bussink*
 
-    *Kevin McPhillips*
+*   `TimeZone.iso8601` now accepts valid ordinal values similar to Ruby's `Date._iso8601` method.
+    A valid ordinal value will be converted to an instance of `TimeWithZone` using the `:year`
+    and `:yday` fragments returned from `Date._iso8601`.
 
-*   Remove deprecated arguments in `assert_nothing_raised`.
+    ```ruby
+    twz = ActiveSupport::TimeZone["Eastern Time (US & Canada)"].iso8601("21087")
+    twz.to_a[0, 6] == [0, 0, 0, 28, 03, 2021]
+    ```
 
-    *Rafel Mendonça França*
+    *Steve Laing*
 
-*   `Date.to_s` doesn't produce too many spaces. For example, `to_s(:short)`
-    will now produce `01 Feb` instead of ` 1 Feb`.
+*   `Time#change` and methods that call it (e.g. `Time#advance`) will now
+    return a `Time` with the timezone argument provided, if the caller was
+    initialized with a timezone argument.
 
-    Fixes #25251.
+    Fixes [#42467](https://github.com/rails/rails/issues/42467).
 
-    *Sean Griffin*
+    *Alex Ghiculescu*
 
-*   Introduce `Module#delegate_missing_to`.
+*   Allow serializing any module or class to JSON by name.
 
-    When building a decorator, a common pattern emerges:
+    *Tyler Rick*, *Zachary Scott*
 
-        class Partition
-          def initialize(first_event)
-            @events = [ first_event ]
-          end
+*   Raise `ActiveSupport::EncryptedFile::MissingKeyError` when the
+    `RAILS_MASTER_KEY` environment variable is blank (e.g. `""`).
 
-          def people
-            if @events.first.detail.people.any?
-              @events.collect { |e| Array(e.detail.people) }.flatten.uniq
-            else
-              @events.collect(&:creator).uniq
-            end
-          end
+    *Sunny Ripert*
 
-          private
-            def respond_to_missing?(name, include_private = false)
-              @events.respond_to?(name, include_private)
-            end
+*   The `from:` option is added to `ActiveSupport::TestCase#assert_no_changes`.
 
-            def method_missing(method, *args, &block)
-              @events.send(method, *args, &block)
-            end
-        end
+    It permits asserting on the initial value that is expected not to change.
 
-    With `Module#delegate_missing_to`, the above is condensed to:
+    ```ruby
+    assert_no_changes -> { Status.all_good? }, from: true do
+      post :create, params: { status: { ok: true } }
+    end
+    ```
 
-        class Partition
-          delegate_missing_to :@events
+    *George Claghorn*
 
-          def initialize(first_event)
-            @events = [ first_event ]
-          end
+*   Deprecate `ActiveSupport::SafeBuffer`'s incorrect implicit conversion of objects into string.
 
-          def people
-            if @events.first.detail.people.any?
-              @events.collect { |e| Array(e.detail.people) }.flatten.uniq
-            else
-              @events.collect(&:creator).uniq
-            end
-          end
-        end
+    Except for a few methods like `String#%`, objects must implement `#to_str`
+    to be implicitly converted to a String in string operations. In some
+    circumstances `ActiveSupport::SafeBuffer` was incorrectly calling the
+    explicit conversion method (`#to_s`) on them. This behavior is now
+    deprecated.
 
-    *Genadi Samokovarov*, *DHH*
+    *Jean Boussier*
 
-*   Rescuable: If a handler doesn't match the exception, check for handlers
-    matching the exception's cause.
+*   Allow nested access to keys on `Rails.application.credentials`.
 
-    *Jeremy Daer*
+    Previously only top level keys in `credentials.yml.enc` could be accessed with method calls. Now any key can.
 
-Please check [5-0-stable](https://github.com/rails/rails/blob/5-0-stable/activesupport/CHANGELOG.md) for previous changes.
+    For example, given these secrets:
+
+    ```yml
+    aws:
+      access_key_id: 123
+      secret_access_key: 345
+    ```
+
+    `Rails.application.credentials.aws.access_key_id` will now return the same thing as
+    `Rails.application.credentials.aws[:access_key_id]`.
+
+    *Alex Ghiculescu*
+
+*   Added a faster and more compact `ActiveSupport::Cache` serialization format.
+
+    It can be enabled with `config.active_support.cache_format_version = 7.0` or
+    `config.load_defaults 7.0`. Regardless of the configuration Active Support
+    7.0 can read cache entries serialized by Active Support 6.1 which allows to
+    upgrade without invalidating the cache. However Rails 6.1 can't read the
+    new format, so all readers must be upgraded before the new format is enabled.
+
+    *Jean Boussier*
+
+*   Add `Enumerable#sole`, per `ActiveRecord::FinderMethods#sole`.  Returns the
+    sole item of the enumerable, raising if no items are found, or if more than
+    one is.
+
+    *Asherah Connor*
+
+*   Freeze `ActiveSupport::Duration#parts` and remove writer methods.
+
+    Durations are meant to be value objects and should not be mutated.
+
+    *Andrew White*
+
+*   Fix `ActiveSupport::TimeZone#utc_to_local` with fractional seconds.
+
+    When `utc_to_local_returns_utc_offset_times` is false and the time
+    instance had fractional seconds the new UTC time instance was out by
+    a factor of 1,000,000 as the `Time.utc` constructor takes a usec
+    value and not a fractional second value.
+
+    *Andrew White*
+
+*   Add `expires_at` argument to `ActiveSupport::Cache` `write` and `fetch` to set a cache entry TTL as an absolute time.
+
+    ```ruby
+    Rails.cache.write(key, value, expires_at: Time.now.at_end_of_hour)
+    ```
+
+    *Jean Boussier*
+
+*   Deprecate `ActiveSupport::TimeWithZone.name` so that from Rails 7.1 it will use the default implementation.
+
+    *Andrew White*
+
+*   Deprecates Rails custom `Enumerable#sum` and `Array#sum` in favor of Ruby's native implementation which
+    is considerably faster.
+
+    Ruby requires an initializer for non-numeric type as per examples below:
+
+    ```ruby
+    %w[foo bar].sum('')
+    # instead of %w[foo bar].sum
+
+    [[1, 2], [3, 4, 5]].sum([])
+    # instead of [[1, 2], [3, 4, 5]].sum
+    ```
+
+    *Alberto Mota*
+
+*   Tests parallelization is now disabled when running individual files to prevent the setup overhead.
+
+    It can still be enforced if the environment variable `PARALLEL_WORKERS` is present and set to a value greater than 1.
+
+    *Ricardo Díaz*
+
+*   Fix proxying keyword arguments in `ActiveSupport::CurrentAttributes`.
+
+    *Marcin Kołodziej*
+
+*   Add `Enumerable#maximum` and `Enumerable#minimum` to easily calculate the maximum or minimum from extracted
+    elements of an enumerable.
+
+    ```ruby
+    payments = [Payment.new(5), Payment.new(15), Payment.new(10)]
+
+    payments.minimum(:price) # => 5
+    payments.maximum(:price) # => 15
+    ```
+
+    This also allows passing enumerables to `fresh_when` and `stale?` in Action Controller.
+    See PR [#41404](https://github.com/rails/rails/pull/41404) for an example.
+
+    *Ayrton De Craene*
+
+*   `ActiveSupport::Cache::MemCacheStore` now accepts an explicit `nil` for its `addresses` argument.
+
+    ```ruby
+    config.cache_store = :mem_cache_store, nil
+
+    # is now equivalent to
+
+    config.cache_store = :mem_cache_store
+
+    # and is also equivalent to
+
+    config.cache_store = :mem_cache_store, ENV["MEMCACHE_SERVERS"] || "localhost:11211"
+
+    # which is the fallback behavior of Dalli
+    ```
+
+    This helps those migrating from `:dalli_store`, where an explicit `nil` was permitted.
+
+    *Michael Overmeyer*
+
+*   Add `Enumerable#in_order_of` to put an Enumerable in a certain order by a key.
+
+    *DHH*
+
+*   `ActiveSupport::Inflector.camelize` behaves expected when provided a symbol `:upper` or `:lower` argument. Matches
+    `String#camelize` behavior.
+
+    *Alex Ghiculescu*
+
+*   Raises an `ArgumentError` when the first argument of `ActiveSupport::Notification.subscribe` is
+    invalid.
+
+    *Vipul A M*
+
+*   `HashWithIndifferentAccess#deep_transform_keys` now returns a `HashWithIndifferentAccess` instead of a `Hash`.
+
+    *Nathaniel Woodthorpe*
+
+*   Consume dalli’s `cache_nils` configuration as `ActiveSupport::Cache`'s `skip_nil` when using `MemCacheStore`.
+
+    *Ritikesh G*
+
+*   Add `RedisCacheStore#stats` method similar to `MemCacheStore#stats`. Calls `redis#info` internally.
+
+    *Ritikesh G*
+
+
+Please check [6-1-stable](https://github.com/rails/rails/blob/6-1-stable/activesupport/CHANGELOG.md) for previous changes.

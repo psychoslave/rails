@@ -1,15 +1,23 @@
+# frozen_string_literal: true
+
 module ActiveRecord
   module Scoping
+    class DefaultScope # :nodoc:
+      attr_reader :scope, :all_queries
+
+      def initialize(scope, all_queries = nil)
+        @scope = scope
+        @all_queries = all_queries
+      end
+    end
+
     module Default
       extend ActiveSupport::Concern
 
       included do
         # Stores the default scope for the class.
-        class_attribute :default_scopes, instance_writer: false, instance_predicate: false
-        class_attribute :default_scope_override, instance_writer: false, instance_predicate: false
-
-        self.default_scopes = []
-        self.default_scope_override = nil
+        class_attribute :default_scopes, instance_writer: false, instance_predicate: false, default: []
+        class_attribute :default_scope_override, instance_writer: false, instance_predicate: false, default: nil
       end
 
       module ClassMethods
@@ -31,8 +39,8 @@ module ActiveRecord
         #   Post.unscoped {
         #     Post.limit(10) # Fires "SELECT * FROM posts LIMIT 10"
         #   }
-        def unscoped
-          block_given? ? relation.scoping { yield } : relation
+        def unscoped(&block)
+          block_given? ? relation.scoping(&block) : relation
         end
 
         # Are there attributes associated with this scope?
@@ -40,12 +48,22 @@ module ActiveRecord
           super || default_scopes.any? || respond_to?(:default_scope)
         end
 
-        def before_remove_const #:nodoc:
+        def before_remove_const # :nodoc:
           self.current_scope = nil
         end
 
-        private
+        # Checks if the model has any default scopes. If all_queries
+        # is set to true, the method will check if there are any
+        # default_scopes for the model  where +all_queries+ is true.
+        def default_scopes?(all_queries: false)
+          if all_queries
+            self.default_scopes.any?(&:all_queries)
+          else
+            self.default_scopes.any?
+          end
+        end
 
+        private
           # Use this macro in your model to set a default scope for all operations on
           # the model.
           #
@@ -56,10 +74,25 @@ module ActiveRecord
           #   Article.all # => SELECT * FROM articles WHERE published = true
           #
           # The #default_scope is also applied while creating/building a record.
-          # It is not applied while updating a record.
+          # It is not applied while updating or deleting a record.
           #
           #   Article.new.published    # => true
           #   Article.create.published # => true
+          #
+          # To apply a #default_scope when updating or deleting a record, add
+          # <tt>all_queries: true</tt>:
+          #
+          #   class Article < ActiveRecord::Base
+          #     default_scope { where(blog_id: 1) }, all_queries: true
+          #   end
+          #
+          # Applying a default scope to all queries will ensure that records
+          # are always queried by the additional conditions. Note that only
+          # where clauses apply, as it does not make sense to add order to
+          # queries that return a single object by primary key.
+          #
+          #   Article.find(1).destroy
+          #   => DELETE ... FROM `articles` where ID = 1 AND blog_id = 1;
           #
           # (You can also pass any object which responds to +call+ to the
           # +default_scope+ macro, and it will be called when building the
@@ -87,8 +120,8 @@ module ActiveRecord
           #       # Should return a scope, you can call 'super' here etc.
           #     end
           #   end
-          def default_scope(scope = nil) # :doc:
-            scope = Proc.new if block_given?
+          def default_scope(scope = nil, all_queries: nil, &block) # :doc:
+            scope = block if block_given?
 
             if scope.is_a?(Relation) || !scope.respond_to?(:call)
               raise ArgumentError,
@@ -98,10 +131,12 @@ module ActiveRecord
                 "self.default_scope.)"
             end
 
-            self.default_scopes += [scope]
+            default_scope = DefaultScope.new(scope, all_queries)
+
+            self.default_scopes += [default_scope]
           end
 
-          def build_default_scope(base_rel = nil)
+          def build_default_scope(relation = relation(), all_queries: nil)
             return if abstract_class?
 
             if default_scope_override.nil?
@@ -110,24 +145,37 @@ module ActiveRecord
 
             if default_scope_override
               # The user has defined their own default scope method, so call that
-              evaluate_default_scope { default_scope }
-            elsif default_scopes.any?
-              base_rel ||= relation
               evaluate_default_scope do
-                default_scopes.inject(base_rel) do |default_scope, scope|
-                  scope = scope.respond_to?(:to_proc) ? scope : scope.method(:call)
-                  default_scope.merge(base_rel.instance_exec(&scope))
+                relation.scoping { default_scope }
+              end
+            elsif default_scopes.any?
+              evaluate_default_scope do
+                default_scopes.inject(relation) do |default_scope, scope_obj|
+                  if execute_scope?(all_queries, scope_obj)
+                    scope = scope_obj.scope.respond_to?(:to_proc) ? scope_obj.scope : scope_obj.scope.method(:call)
+
+                    default_scope.instance_exec(&scope) || default_scope
+                  end
                 end
               end
             end
           end
 
+          # If all_queries is nil, only execute on select and insert queries.
+          #
+          # If all_queries is true, check if the default_scope object has
+          # all_queries set, then execute on all queries; select, insert, update
+          # and delete.
+          def execute_scope?(all_queries, default_scope_obj)
+            all_queries.nil? || all_queries && default_scope_obj.all_queries
+          end
+
           def ignore_default_scope?
-            ScopeRegistry.value_for(:ignore_default_scope, base_class)
+            ScopeRegistry.ignore_default_scope(base_class)
           end
 
           def ignore_default_scope=(ignore)
-            ScopeRegistry.set_value_for(:ignore_default_scope, base_class, ignore)
+            ScopeRegistry.set_ignore_default_scope(base_class, ignore)
           end
 
           # The ignore_default_scope flag is used to prevent an infinite recursion

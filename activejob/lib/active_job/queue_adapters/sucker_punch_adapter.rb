@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "sucker_punch"
 
 module ActiveJob
@@ -8,7 +10,7 @@ module ActiveJob
     # This reduces the cost of hosting on a service like Heroku along
     # with the memory footprint of having to maintain additional jobs if
     # hosting on a dedicated server. All queues can run within a
-    # single application (eg. Rails, Sinatra, etc.) process.
+    # single application (e.g. Rails, Sinatra, etc.) process.
     #
     # Read more about Sucker Punch {here}[https://github.com/brandonhilkert/sucker_punch].
     #
@@ -16,7 +18,7 @@ module ActiveJob
     #
     #   Rails.application.config.active_job.queue_adapter = :sucker_punch
     class SuckerPunchAdapter
-      def enqueue(job) #:nodoc:
+      def enqueue(job) # :nodoc:
         if JobWrapper.respond_to?(:perform_async)
           # sucker_punch 2.0 API
           JobWrapper.perform_async job.serialize
@@ -26,7 +28,7 @@ module ActiveJob
         end
       end
 
-      def enqueue_at(job, timestamp) #:nodoc:
+      def enqueue_at(job, timestamp) # :nodoc:
         if JobWrapper.respond_to?(:perform_in)
           delay = timestamp - Time.current.to_f
           JobWrapper.perform_in delay, job.serialize
@@ -35,7 +37,7 @@ module ActiveJob
         end
       end
 
-      class JobWrapper #:nodoc:
+      class JobWrapper # :nodoc:
         include SuckerPunch::Job
 
         def perform(job_data)

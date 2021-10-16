@@ -1,6 +1,10 @@
+# frozen_string_literal: true
+
 module ActiveRecord
   class LogSubscriber < ActiveSupport::LogSubscriber
     IGNORE_PAYLOAD_NAMES = ["SCHEMA", "EXPLAIN"]
+
+    class_attribute :backtrace_cleaner, default: ActiveSupport::BacktraceCleaner.new
 
     def self.runtime=(value)
       ActiveRecord::RuntimeRegistry.sql_runtime = value
@@ -15,6 +19,16 @@ module ActiveRecord
       rt
     end
 
+    def strict_loading_violation(event)
+      debug do
+        owner = event.payload[:owner]
+        association = event.payload[:reflection].klass
+        name = event.payload[:reflection].name
+
+        color("Strict loading violation: #{owner} is marked for strict loading. The #{association} association named :#{name} cannot be lazily loaded.", RED)
+      end
+    end
+
     def sql(event)
       self.class.runtime += event.duration
       return unless logger.debug?
@@ -23,38 +37,50 @@ module ActiveRecord
 
       return if IGNORE_PAYLOAD_NAMES.include?(payload[:name])
 
-      name  = "#{payload[:name]} (#{event.duration.round(1)}ms)"
+      name = if payload[:async]
+        "ASYNC #{payload[:name]} (#{payload[:lock_wait].round(1)}ms) (db time #{event.duration.round(1)}ms)"
+      else
+        "#{payload[:name]} (#{event.duration.round(1)}ms)"
+      end
       name  = "CACHE #{name}" if payload[:cached]
       sql   = payload[:sql]
       binds = nil
 
-      unless (payload[:binds] || []).empty?
-        casted_params = type_casted_binds(payload[:binds], payload[:type_casted_binds])
-        binds = "  " + payload[:binds].zip(casted_params).map { |attr, value|
-          render_bind(attr, value)
-        }.inspect
+      if payload[:binds]&.any?
+        casted_params = type_casted_binds(payload[:type_casted_binds])
+
+        binds = []
+        payload[:binds].each_with_index do |attr, i|
+          binds << render_bind(attr, casted_params[i])
+        end
+        binds = binds.inspect
+        binds.prepend("  ")
       end
 
       name = colorize_payload_name(name, payload[:name])
-      sql  = color(sql, sql_color(sql), true)
+      sql  = color(sql, sql_color(sql), true) if colorize_logging
 
       debug "  #{name}  #{sql}#{binds}"
     end
 
     private
-
-      def type_casted_binds(binds, casted_binds)
-        casted_binds || binds.map { |attr| type_cast attr.value_for_database }
+      def type_casted_binds(casted_binds)
+        casted_binds.respond_to?(:call) ? casted_binds.call : casted_binds
       end
 
-      def render_bind(attr, type_casted_value)
-        value = if attr.type.binary? && attr.value
-          "<#{attr.value_for_database.to_s.bytesize} bytes of binary data>"
+      def render_bind(attr, value)
+        case attr
+        when ActiveModel::Attribute
+          if attr.type.binary? && attr.value
+            value = "<#{attr.value_for_database.to_s.bytesize} bytes of binary data>"
+          end
+        when Array
+          attr = attr.first
         else
-          type_casted_value
+          attr = nil
         end
 
-        [attr.name, value]
+        [attr&.name, value]
       end
 
       def colorize_payload_name(name, payload_name)
@@ -90,8 +116,24 @@ module ActiveRecord
         ActiveRecord::Base.logger
       end
 
-      def type_cast(value)
-        ActiveRecord::Base.connection.type_cast(value)
+      def debug(progname = nil, &block)
+        return unless super
+
+        if ActiveRecord.verbose_query_logs
+          log_query_source
+        end
+      end
+
+      def log_query_source
+        source = extract_query_source_location(caller)
+
+        if source
+          logger.debug("  ↳ #{source}")
+        end
+      end
+
+      def extract_query_source_location(locations)
+        backtrace_cleaner.clean(locations.lazy).first
       end
   end
 end

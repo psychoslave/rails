@@ -1,29 +1,28 @@
+# frozen_string_literal: true
+
 module ActionView
   class Template
     module Handlers
-      Erubis = ActiveSupport::Deprecation::DeprecatedConstantProxy.new("Erubis", "ActionView::Template::Handlers::ERB::Erubis", message: "ActionView::Template::Handlers::Erubis is deprecated and will be removed from Rails 5.2. Switch to ActionView::Template::Handlers::ERB::Erubi instead.")
-
       class ERB
         autoload :Erubi, "action_view/template/handlers/erb/erubi"
-        autoload :Erubis, "action_view/template/handlers/erb/erubis"
 
         # Specify trim mode for the ERB compiler. Defaults to '-'.
         # See ERB documentation for suitable values.
-        class_attribute :erb_trim_mode
-        self.erb_trim_mode = "-"
+        class_attribute :erb_trim_mode, default: "-"
 
         # Default implementation used.
-        class_attribute :erb_implementation
-        self.erb_implementation = Erubi
+        class_attribute :erb_implementation, default: Erubi
 
         # Do not escape templates of these mime types.
-        class_attribute :escape_whitelist
-        self.escape_whitelist = ["text/plain"]
+        class_attribute :escape_ignore_list, default: ["text/plain"]
+
+        # Strip trailing newlines from rendered output
+        class_attribute :strip_trailing_newlines, default: false
 
         ENCODING_TAG = Regexp.new("\\A(<%#{ENCODING_FLAG}-?%>)[ \\t]*")
 
-        def self.call(template)
-          new.call(template)
+        def self.call(template, source)
+          new.call(template, source)
         end
 
         def supports_streaming?
@@ -34,30 +33,38 @@ module ActionView
           true
         end
 
-        def call(template)
+        def call(template, source)
           # First, convert to BINARY, so in case the encoding is
           # wrong, we can still find an encoding tag
           # (<%# encoding %>) inside the String using a regular
           # expression
-          template_source = template.source.dup.force_encoding(Encoding::ASCII_8BIT)
+          template_source = source.b
 
           erb = template_source.gsub(ENCODING_TAG, "")
           encoding = $2
 
-          erb.force_encoding valid_encoding(template.source.dup, encoding)
+          erb.force_encoding valid_encoding(source.dup, encoding)
 
           # Always make sure we return a String in the default_internal
           erb.encode!
 
-          self.class.erb_implementation.new(
-            erb,
-            escape: (self.class.escape_whitelist.include? template.type),
+          # Strip trailing newlines from the template if enabled
+          erb.chomp! if strip_trailing_newlines
+
+          options = {
+            escape: (self.class.escape_ignore_list.include? template.type),
             trim: (self.class.erb_trim_mode == "-")
-          ).src
+          }
+
+          if ActionView::Base.annotate_rendered_view_with_filenames && template.format == :html
+            options[:preamble] = "@output_buffer.safe_append='<!-- BEGIN #{template.short_identifier} -->';"
+            options[:postamble] = "@output_buffer.safe_append='<!-- END #{template.short_identifier} -->';@output_buffer.to_s"
+          end
+
+          self.class.erb_implementation.new(erb, options).src
         end
 
       private
-
         def valid_encoding(string, encoding)
           # If a magic encoding comment was found, tag the
           # String with this encoding. This is for a case

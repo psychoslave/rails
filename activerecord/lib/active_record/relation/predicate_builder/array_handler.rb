@@ -1,3 +1,7 @@
+# frozen_string_literal: true
+
+require "active_support/core_ext/array/extract"
+
 module ActiveRecord
   class PredicateBuilder
     class ArrayHandler # :nodoc:
@@ -6,33 +10,32 @@ module ActiveRecord
       end
 
       def call(attribute, value)
+        return attribute.in([]) if value.empty?
+
         values = value.map { |x| x.is_a?(Base) ? x.id : x }
-        nils, values = values.partition(&:nil?)
-
-        return attribute.in([]) if values.empty? && nils.empty?
-
-        ranges, values = values.partition { |v| v.is_a?(Range) }
+        nils = values.extract!(&:nil?)
+        ranges = values.extract! { |v| v.is_a?(Range) }
 
         values_predicate =
           case values.length
           when 0 then NullPredicate
           when 1 then predicate_builder.build(attribute, values.first)
-          else attribute.in(values)
+          else Arel::Nodes::HomogeneousIn.new(values, attribute, :in)
           end
 
         unless nils.empty?
-          values_predicate = values_predicate.or(predicate_builder.build(attribute, nil))
+          values_predicate = values_predicate.or(attribute.eq(nil))
         end
 
-        array_predicates = ranges.map { |range| predicate_builder.build(attribute, range) }
-        array_predicates.unshift(values_predicate)
-        array_predicates.inject { |composite, predicate| composite.or(predicate) }
+        if ranges.empty?
+          values_predicate
+        else
+          array_predicates = ranges.map! { |range| predicate_builder.build(attribute, range) }
+          array_predicates.inject(values_predicate, &:or)
+        end
       end
 
-      # TODO Change this to private once we've dropped Ruby 2.2 support.
-      # Workaround for Ruby 2.2 "private attribute?" warning.
-      protected
-
+      private
         attr_reader :predicate_builder
 
         module NullPredicate # :nodoc:

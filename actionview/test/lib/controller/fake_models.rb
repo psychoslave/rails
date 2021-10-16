@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "active_model"
 
 Customer = Struct.new(:name, :id) do
@@ -26,10 +28,14 @@ Customer = Struct.new(:name, :id) do
   def persisted?
     id.present?
   end
+
+  def cache_key
+    name.to_s
+  end
 end
 
-class GoodCustomer < Customer
-end
+class BadCustomer < Customer; end
+class GoodCustomer < Customer; end
 
 Post = Struct.new(:title, :author_name, :body, :secret, :persisted, :written_on, :cost) do
   extend ActiveModel::Naming
@@ -177,9 +183,9 @@ class ArelLike
   def to_ary
     true
   end
-  def each
+  def each(&block)
     a = Array.new(2) { |id| Comment.new(id + 1) }
-    a.each { |i| yield i }
+    a.each(&block)
   end
 end
 

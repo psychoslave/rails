@@ -1,6 +1,7 @@
+# frozen_string_literal: true
+
 require "cases/helper"
 require "models/car"
-require "active_support/core_ext/string/strip"
 
 if ActiveRecord::Base.connection.supports_explain?
   class ExplainTest < ActiveRecord::TestCase
@@ -51,7 +52,7 @@ if ActiveRecord::Base.connection.supports_explain?
       queries = sqls.zip(binds)
 
       stub_explain_for_query_plans(["query plan foo\n", "query plan bar\n"]) do
-        expected = <<-SQL.strip_heredoc
+        expected = <<~SQL
           EXPLAIN for: #{sqls[0]} [["wadus", 1]]
           query plan foo
 
@@ -62,22 +63,11 @@ if ActiveRecord::Base.connection.supports_explain?
       end
     end
 
-    def test_unsupported_connection_adapter
-      connection.stub(:supports_explain?, false) do
-        assert_not_called(base.logger, :warn) do
-          Car.where(name: "honda").to_a
-        end
-      end
-    end
-
     private
-
-      def stub_explain_for_query_plans(query_plans = ["query plan foo", "query plan bar"])
+      def stub_explain_for_query_plans(query_plans = ["query plan foo", "query plan bar"], &block)
         explain_called = 0
 
-        connection.stub(:explain, proc { explain_called += 1; query_plans[explain_called - 1] }) do
-          yield
-        end
+        connection.stub(:explain, proc { explain_called += 1; query_plans[explain_called - 1] }, &block)
       end
 
       def bind_param(name, value)

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActionDispatch
   module Assertions
     # A small suite of assertions that test responses from \Rails applications.
@@ -29,15 +31,13 @@ module ActionDispatch
         message ||= generate_response_message(type)
 
         if RESPONSE_PREDICATES.keys.include?(type)
-          assert @response.send(RESPONSE_PREDICATES[type]), message
+          assert @response.public_send(RESPONSE_PREDICATES[type]), message
         else
           assert_equal AssertionResponse.new(type).code, @response.response_code, message
         end
       end
 
-      # Asserts that the redirection options passed in match those of the redirect called in the latest action.
-      # This match can be partial, such that <tt>assert_redirected_to(controller: "weblog")</tt> will also
-      # match the redirection of <tt>redirect_to(controller: "weblog", action: "show")</tt> and so on.
+      # Asserts that the response is a redirect to a URL matching the given options.
       #
       #   # Asserts that the redirection was to the "index" action on the WeblogController
       #   assert_redirected_to controller: "weblog", action: "index"
@@ -45,7 +45,7 @@ module ActionDispatch
       #   # Asserts that the redirection was to the named route login_url
       #   assert_redirected_to login_url
       #
-      #   # Asserts that the redirection was to the url for @customer
+      #   # Asserts that the redirection was to the URL for @customer
       #   assert_redirected_to @customer
       #
       #   # Asserts that the redirection matches the regular expression
@@ -77,9 +77,8 @@ module ActionDispatch
         end
 
         def generate_response_message(expected, actual = @response.response_code)
-          "Expected response to be a <#{code_with_name(expected)}>,"\
-          " but was a <#{code_with_name(actual)}>"
-            .concat(location_if_redirected).concat(response_body_if_short)
+          (+"Expected response to be a <#{code_with_name(expected)}>,"\
+          " but was a <#{code_with_name(actual)}>").concat(location_if_redirected).concat(response_body_if_short)
         end
 
         def response_body_if_short

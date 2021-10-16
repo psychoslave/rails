@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "active_job/arguments"
 
 class DelayedMailerError < StandardError; end
@@ -17,6 +19,10 @@ class DelayedMailer < ActionMailer::Base
   end
 
   def test_message(*)
+    mail(from: "test-sender@test.com", to: "test-receiver@test.com", subject: "Test Subject", body: "Test Body")
+  end
+
+  def test_kwargs(argument:)
     mail(from: "test-sender@test.com", to: "test-receiver@test.com", subject: "Test Subject", body: "Test Body")
   end
 

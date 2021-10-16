@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class Vegetable < ActiveRecord::Base
   validates_presence_of :name
 
@@ -20,4 +22,12 @@ end
 
 class RedCabbage < Cabbage
   belongs_to :seller, class_name: "Company"
+end
+
+class YellingVegetable < Vegetable
+  after_initialize :format_name
+
+  def format_name
+    self.name = name&.upcase
+  end
 end

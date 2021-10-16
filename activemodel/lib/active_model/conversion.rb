@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActiveModel
   # == Active \Model \Conversion
   #
@@ -94,14 +96,14 @@ module ActiveModel
       self.class._to_partial_path
     end
 
-    module ClassMethods #:nodoc:
+    module ClassMethods # :nodoc:
       # Provide a class level cache for #to_partial_path. This is an
       # internal method and should not be accessed directly.
-      def _to_partial_path #:nodoc:
+      def _to_partial_path # :nodoc:
         @_to_partial_path ||= begin
           element = ActiveSupport::Inflector.underscore(ActiveSupport::Inflector.demodulize(name))
           collection = ActiveSupport::Inflector.tableize(name)
-          "#{collection}/#{element}".freeze
+          "#{collection}/#{element}"
         end
       end
     end

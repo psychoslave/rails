@@ -1,3 +1,17 @@
+(function() {
+
+function buildSelect(attrs) {
+  attrs = $.extend({
+    'name': 'user_data', 'data-remote': 'true', 'data-url': '/echo', 'data-params': 'data1=value1'
+  }, attrs)
+
+  $('#qunit-fixture').append(
+    $('<select />', attrs)
+      .append($('<option />', {value: 'optionValue1', text: 'option1'}))
+      .append($('<option />', {value: 'optionValue2', text: 'option2'}))
+  )
+}
+
 module('data-remote', {
   setup: function() {
     $('#qunit-fixture')
@@ -23,7 +37,7 @@ module('data-remote', {
         href: '/echo',
         'data-remote': 'true',
         disabled: 'disabled',
-        text: 'Disabed link'
+        text: 'Disabled link'
       }))
       .find('form').append($('<input type="text" name="user_name" value="john">'))
 
@@ -33,7 +47,7 @@ module('data-remote', {
 asyncTest('ctrl-clicking on a link does not fire ajaxyness', 0, function() {
   var link = $('a[data-remote]')
 
-  // Ideally, we'd setup an iframe to intercept normal link clicks
+  // Ideally, we'd set up an iframe to intercept normal link clicks
   // and add a test to make sure the iframe:loaded event is triggered.
   // However, jquery doesn't actually cause a native `click` event and
   // follow links using `trigger('click')`, it only fires bindings.
@@ -45,6 +59,39 @@ asyncTest('ctrl-clicking on a link does not fire ajaxyness', 0, function() {
 
   link.triggerNative('click', { metaKey: true })
   link.triggerNative('click', { ctrlKey: true })
+
+  setTimeout(function() { start() }, 13)
+})
+
+asyncTest('right/mouse-wheel-clicking on a link does not fire ajaxyness', 0, function() {
+  var link = $('a[data-remote]')
+
+  // Ideally, we'd set up an iframe to intercept normal link clicks
+  // and add a test to make sure the iframe:loaded event is triggered.
+  // However, jquery doesn't actually cause a native `click` event and
+  // follow links using `trigger('click')`, it only fires bindings.
+  link
+    .removeAttr('data-params')
+    .bindNative('ajax:beforeSend', function() {
+      ok(false, 'ajax should not be triggered')
+    })
+
+  link.triggerNative('click', { button: 1 })
+  link.triggerNative('click', { button: 2 })
+
+  setTimeout(function() { start() }, 13)
+})
+
+asyncTest('clicking on a link via a non-mouse Event (such as from js) works', 1, function() {
+  var link = $('a[data-remote]')
+
+  link
+    .removeAttr('data-params')
+    .bindNative('ajax:beforeSend', function() {
+      ok(true, 'ajax should be triggered')
+    })
+
+  Rails.fire(link[0], 'click')
 
   setTimeout(function() { start() }, 13)
 })
@@ -73,7 +120,6 @@ asyncTest('clicking on a link with data-remote attribute', 5, function() {
     .bindNative('ajax:success', function(e, data, status, xhr) {
       App.assertCallbackInvoked('ajax:success')
       App.assertRequestPath(data, '/echo')
-      console.log(data.params)
       equal(data.params.data1, 'value1', 'ajax arguments should have key data1 with right value')
       equal(data.params.data2, 'value2', 'ajax arguments should have key data2 with right value')
       App.assertGetRequest(data)
@@ -89,7 +135,7 @@ asyncTest('clicking on a link with both query string in href and data-params', 4
       App.assertGetRequest(data)
       equal(data.params.data1, 'value1', 'ajax arguments should have key data1 with right value')
       equal(data.params.data2, 'value2', 'ajax arguments should have key data2 with right value')
-      equal(data.params.data3, 'value3', 'query string in url should be passed to server with right value')
+      equal(data.params.data3, 'value3', 'query string in URL should be passed to server with right value')
     })
     .bindNative('ajax:complete', function() { start() })
     .triggerNative('click')
@@ -103,7 +149,7 @@ asyncTest('clicking on a link with both query string in href and data-params wit
       App.assertPostRequest(data)
       equal(data.params.data1, 'value1', 'ajax arguments should have key data1 with right value')
       equal(data.params.data2, 'value2', 'ajax arguments should have key data2 with right value')
-      equal(data.params.data3, 'value3', 'query string in url should be passed to server with right value')
+      equal(data.params.data3, 'value3', 'query string in URL should be passed to server with right value')
     })
     .bindNative('ajax:complete', function() { start() })
     .triggerNative('click')
@@ -135,18 +181,27 @@ asyncTest('clicking on a button with data-remote attribute', 5, function() {
     .triggerNative('click')
 })
 
+asyncTest('right/mouse-wheel-clicking on a button with data-remote attribute does not fire ajaxyness', 0, function() {
+  var button = $('button[data-remote]')
+
+  // Ideally, we'd set up an iframe to intercept normal link clicks
+  // and add a test to make sure the iframe:loaded event is triggered.
+  // However, jquery doesn't actually cause a native `click` event and
+  // follow links using `trigger('click')`, it only fires bindings.
+  button
+    .removeAttr('data-params')
+    .bindNative('ajax:beforeSend', function() {
+      ok(false, 'ajax should not be triggered')
+    })
+
+  button.triggerNative('click', { button: 1 })
+  button.triggerNative('click', { button: 2 })
+
+  setTimeout(function() { start() }, 13)
+})
+
 asyncTest('changing a select option with data-remote attribute', 5, function() {
-  $('form')
-    .append(
-      $('<select />', {
-        'name': 'user_data',
-        'data-remote': 'true',
-        'data-params': 'data1=value1',
-        'data-url': '/echo'
-      })
-      .append($('<option />', {value: 'optionValue1', text: 'option1'}))
-      .append($('<option />', {value: 'optionValue2', text: 'option2'}))
-    )
+  buildSelect()
 
   $('select[data-remote]')
     .bindNative('ajax:success', function(e, data, status, xhr) {
@@ -188,9 +243,10 @@ asyncTest('submitting form with data-remote attribute should include inputs in a
     .triggerNative('submit')
 })
 
-asyncTest('submitting form with data-remote attribute submits input with matching [form] attribute', 5, function() {
+asyncTest('submitting form with data-remote attribute submits input with matching [form] attribute', 6, function() {
   $('#qunit-fixture')
     .append($('<input type="text" name="user_data" value="value1" form="my-remote-form">'))
+    .append($('<input type="text" name="user_email" value="from@example.com" disabled="disabled" form="my-remote-form">'))
 
   $('form[data-remote]')
     .bindNative('ajax:success', function(e, data, status, xhr) {
@@ -198,6 +254,7 @@ asyncTest('submitting form with data-remote attribute submits input with matchin
       App.assertRequestPath(data, '/echo')
       equal(data.params.user_name, 'john', 'ajax arguments should have key user_name with right value')
       equal(data.params.user_data, 'value1', 'ajax arguments should have key user_data with right value')
+      equal(data.params.user_email, undefined, 'ajax arguments should not have disabled field')
       App.assertPostRequest(data)
     })
     .bindNative('ajax:complete', function() { start() })
@@ -254,7 +311,7 @@ asyncTest('form\'s submit bindings in browsers that don\'t support submit bubbli
     })
 
     if(!$.support.submitBubbles) {
-      // Must indrectly submit form via click to trigger jQuery's manual submit bubbling in IE
+      // Must indirectly submit form via click to trigger jQuery's manual submit bubbling in IE
       form.find('input[type=submit]')
       .triggerNative('click')
     } else {
@@ -267,16 +324,17 @@ asyncTest('returning false in form\'s submit bindings in non-submit-bubbling bro
 
   form
     .append($('<input type="submit" />'))
-    .bindNative('submit', function() {
+    .bindNative('submit', function(e) {
       ok(true, 'binding handler is called')
-      return false
+      e.preventDefault()
+      e.stopPropagation()
     })
     .bindNative('ajax:beforeSend', function() {
       ok(false, 'form should not be submitted')
     })
 
     if (!$.support.submitBubbles) {
-      // Must indrectly submit form via click to trigger jQuery's manual submit bubbling in IE
+      // Must indirectly submit form via click to trigger jQuery's manual submit bubbling in IE
       form.find('input[type=submit]').triggerNative('click')
     } else {
       form.triggerNative('submit')
@@ -291,8 +349,8 @@ asyncTest('clicking on a link with falsy "data-remote" attribute does not fire a
     .bindNative('ajax:beforeSend', function() {
       ok(false, 'ajax should not be triggered')
     })
-    .bindNative('click', function() {
-      return false
+    .bindNative('click', function(e) {
+      e.preventDefault()
     })
     .triggerNative('click')
 
@@ -309,8 +367,8 @@ asyncTest('ctrl-clicking on a link with falsy "data-remote" attribute does not f
     .bindNative('ajax:beforeSend', function() {
       ok(false, 'ajax should not be triggered')
     })
-    .bindNative('click', function() {
-      return false
+    .bindNative('click', function(e) {
+      e.preventDefault()
     })
     .triggerNative('click', { metaKey: true })
 
@@ -328,8 +386,8 @@ asyncTest('clicking on a button with falsy "data-remote" attribute', 0, function
     .bindNative('ajax:beforeSend', function() {
       ok(false, 'ajax should not be triggered')
     })
-    .bindNative('click', function() {
-      return false
+    .bindNative('click', function(e) {
+      e.preventDefault()
     })
     .triggerNative('click')
 
@@ -342,8 +400,8 @@ asyncTest('submitting a form with falsy "data-remote" attribute', 0, function() 
     .bindNative('ajax:beforeSend', function() {
       ok(false, 'ajax should not be triggered')
     })
-    .bindNative('submit', function() {
-      return false
+    .bindNative('submit', function(e) {
+      e.preventDefault()
     })
     .triggerNative('submit')
 
@@ -351,17 +409,7 @@ asyncTest('submitting a form with falsy "data-remote" attribute', 0, function() 
 })
 
 asyncTest('changing a select option with falsy "data-remote" attribute', 0, function() {
-  $('form')
-    .append(
-      $('<select />', {
-        'name': 'user_data',
-        'data-remote': 'false',
-        'data-params': 'data1=value1',
-        'data-url': '/echo'
-      })
-      .append($('<option />', {value: 'optionValue1', text: 'option1'}))
-      .append($('<option />', {value: 'optionValue2', text: 'option2'}))
-    )
+  buildSelect({'data-remote': 'false'})
 
   $('select[data-remote=false]:first')
     .bindNative('ajax:beforeSend', function() {
@@ -398,3 +446,66 @@ asyncTest('form should be serialized correctly', 6, function() {
     })
     .triggerNative('submit')
 })
+
+asyncTest('form buttons should only be serialized when clicked', 4, function() {
+  $('form')
+    .append('<input type="submit" name="submit1" value="submit1" />')
+    .append('<button name="submit2" value="submit2" />')
+    .append('<button name="submit3" value="submit3" />')
+    .bindNative('ajax:success', function(e, data, status, xhr) {
+      equal(data.params.submit1, undefined)
+      equal(data.params.submit2, 'submit2')
+      equal(data.params.submit3, undefined)
+      equal(data['rack.request.form_vars'], 'user_name=john&submit2=submit2')
+
+      start()
+    })
+    .find('[name=submit2]').triggerNative('click')
+})
+
+asyncTest('changing a select option without "data-url" attribute still fires ajax request to current location', 1, function() {
+  var currentLocation, ajaxLocation
+
+  buildSelect({'data-url': ''})
+
+  $('select[data-remote]')
+    .bindNative('ajax:beforeSend', function(e, xhr, settings) {
+      // Get current location (the same way jQuery does)
+      try {
+        currentLocation = location.href
+      } catch(err) {
+        currentLocation = document.createElement( 'a' )
+        currentLocation.href = ''
+        currentLocation = currentLocation.href
+      }
+
+      ajaxLocation = settings.url.replace(settings.data, '').replace(/&$/, '').replace(/\?$/, '')
+      equal(ajaxLocation, currentLocation, 'URL should be current page by default')
+
+      e.preventDefault()
+    })
+    .val('optionValue2')
+    .triggerNative('change')
+
+  setTimeout(function() { start() }, 20)
+})
+
+asyncTest('inputs inside disabled fieldset are not submitted on remote forms', 3, function() {
+  $('form')
+    .append('<fieldset>\
+      <input name="description" value="A wise man" />\
+    </fieldset>')
+    .append('<fieldset disabled="disabled">\
+      <input name="age" />\
+    </fieldset>')
+    .bindNative('ajax:success', function(e, data, status, xhr) {
+      equal(data.params.user_name, 'john')
+      equal(data.params.description, 'A wise man')
+      equal(data.params.age, undefined)
+
+      start()
+    })
+    .triggerNative('submit')
+})
+
+})()

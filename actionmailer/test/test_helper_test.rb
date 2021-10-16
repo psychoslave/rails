@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "abstract_unit"
 require "active_support/testing/stream"
 
@@ -8,10 +10,37 @@ class TestHelperMailer < ActionMailer::Base
       to: "test@example.com",
       from: "tester@example.com"
   end
+
+  def test_args(recipient, name)
+    mail body: render(inline: "Hello, #{name}"),
+      to: recipient,
+      from: "tester@example.com"
+  end
+
+  def test_parameter_args
+    mail body: render(inline: "All is #{params[:all]}"),
+      to: "test@example.com",
+      from: "tester@example.com"
+  end
+end
+
+class CustomDeliveryJob < ActionMailer::MailDeliveryJob
+end
+
+class CustomDeliveryMailer < TestHelperMailer
+  self.delivery_job = CustomDeliveryJob
 end
 
 class TestHelperMailerTest < ActionMailer::TestCase
   include ActiveSupport::Testing::Stream
+
+  setup do
+    @previous_deliver_later_queue_name = ActionMailer::Base.deliver_later_queue_name
+  end
+
+  teardown do
+    ActionMailer::Base.deliver_later_queue_name = @previous_deliver_later_queue_name
+  end
 
   def test_setup_sets_right_action_mailer_options
     assert_equal :test, ActionMailer::Base.delivery_method
@@ -40,7 +69,7 @@ class TestHelperMailerTest < ActionMailer::TestCase
   end
 
   def test_encode
-    assert_equal "=?UTF-8?Q?This_is_=E3=81=82_string?=", encode("This is あ string")
+    assert_equal "This is あ string", Mail::Encodings.q_value_decode(encode("This is あ string"))
   end
 
   def test_read_fixture
@@ -51,6 +80,36 @@ class TestHelperMailerTest < ActionMailer::TestCase
     assert_nothing_raised do
       assert_emails 1 do
         TestHelperMailer.test.deliver_now
+      end
+    end
+  end
+
+  def test_assert_emails_with_custom_delivery_job
+    assert_nothing_raised do
+      assert_emails(1) do
+        silence_stream($stdout) do
+          CustomDeliveryMailer.test.deliver_later
+        end
+      end
+    end
+  end
+
+  def test_assert_emails_with_custom_parameterized_delivery_job
+    assert_nothing_raised do
+      assert_emails(1) do
+        silence_stream($stdout) do
+          CustomDeliveryMailer.with(foo: "bar").test_parameter_args.deliver_later
+        end
+      end
+    end
+  end
+
+  def test_assert_emails_with_enqueued_emails
+    assert_nothing_raised do
+      assert_emails 1 do
+        silence_stream($stdout) do
+          TestHelperMailer.test.deliver_later
+        end
       end
     end
   end
@@ -89,6 +148,18 @@ class TestHelperMailerTest < ActionMailer::TestCase
         TestHelperMailer.test
       end
     end
+  end
+
+  def test_assert_no_emails_with_enqueued_emails
+    error = assert_raise ActiveSupport::TestCase::Assertion do
+      assert_no_emails do
+        silence_stream($stdout) do
+          TestHelperMailer.test.deliver_later
+        end
+      end
+    end
+
+    assert_match(/0 .* but 1/, error.message)
   end
 
   def test_assert_emails_too_few_sent
@@ -143,6 +214,44 @@ class TestHelperMailerTest < ActionMailer::TestCase
     end
   end
 
+  def test_assert_enqueued_emails_with_legacy_delivery_job
+    previous_delivery_job = TestHelperMailer.delivery_job
+    TestHelperMailer.delivery_job = ActionMailer::DeliveryJob
+    assert_nothing_raised do
+      assert_enqueued_emails 1 do
+        silence_stream($stdout) do
+          TestHelperMailer.test.deliver_later
+        end
+      end
+    end
+  ensure
+    TestHelperMailer.delivery_job = previous_delivery_job
+  end
+
+  def test_assert_enqueued_parameterized_emails
+    assert_nothing_raised do
+      assert_enqueued_emails 1 do
+        silence_stream($stdout) do
+          TestHelperMailer.with(a: 1).test.deliver_later
+        end
+      end
+    end
+  end
+
+  def test_assert_enqueued_parameterized_emails_with_legacy_delivery_job
+    previous_delivery_job = TestHelperMailer.delivery_job
+    TestHelperMailer.delivery_job = ActionMailer::DeliveryJob
+    assert_nothing_raised do
+      assert_enqueued_emails 1 do
+        silence_stream($stdout) do
+          TestHelperMailer.with(a: 1).test.deliver_later
+        end
+      end
+    end
+  ensure
+    TestHelperMailer.delivery_job = previous_delivery_job
+  end
+
   def test_assert_enqueued_emails_too_few_sent
     error = assert_raise ActiveSupport::TestCase::Assertion do
       assert_enqueued_emails 2 do
@@ -153,6 +262,16 @@ class TestHelperMailerTest < ActionMailer::TestCase
     end
 
     assert_match(/2 .* but 1/, error.message)
+  end
+
+  def test_assert_enqueued_emails_with_custom_delivery_job
+    assert_nothing_raised do
+      assert_enqueued_emails(1) do
+        silence_stream($stdout) do
+          CustomDeliveryMailer.test.deliver_later
+        end
+      end
+    end
   end
 
   def test_assert_enqueued_emails_too_many_sent
@@ -176,6 +295,14 @@ class TestHelperMailerTest < ActionMailer::TestCase
     end
   end
 
+  def test_assert_no_enqueued_parameterized_emails
+    assert_nothing_raised do
+      assert_no_enqueued_emails do
+        TestHelperMailer.with(a: 1).test.deliver_now
+      end
+    end
+  end
+
   def test_assert_no_enqueued_emails_failure
     error = assert_raise ActiveSupport::TestCase::Assertion do
       assert_no_enqueued_emails do
@@ -186,6 +313,121 @@ class TestHelperMailerTest < ActionMailer::TestCase
     end
 
     assert_match(/0 .* but 1/, error.message)
+  end
+
+  def test_assert_enqueued_email_with
+    assert_nothing_raised do
+      assert_enqueued_email_with TestHelperMailer, :test do
+        silence_stream($stdout) do
+          TestHelperMailer.test.deliver_later
+        end
+      end
+    end
+  end
+
+  def test_assert_enqueued_email_with_when_deliver_later_queue_name_is_nil
+    ActionMailer::Base.deliver_later_queue_name = nil
+
+    assert_nothing_raised do
+      assert_enqueued_email_with TestHelperMailer, :test do
+        silence_stream($stdout) do
+          TestHelperMailer.test.deliver_later
+        end
+      end
+    end
+  end
+
+  def test_assert_enqueued_email_with_when_deliver_later_queue_name_with_non_default_name
+    ActionMailer::Base.deliver_later_queue_name = "sample_mailer_queue_name"
+
+    assert_nothing_raised do
+      assert_enqueued_email_with TestHelperMailer, :test do
+        silence_stream($stdout) do
+          TestHelperMailer.test.deliver_later
+        end
+      end
+    end
+  end
+
+  def test_assert_enqueued_email_with_when_deliver_later_queue_name_is_symbol
+    ActionMailer::Base.deliver_later_queue_name = :mailers
+
+    assert_nothing_raised do
+      assert_enqueued_email_with TestHelperMailer, :test do
+        silence_stream($stdout) do
+          TestHelperMailer.test.deliver_later
+        end
+      end
+    end
+  end
+
+  def test_assert_enqueued_email_with_when_queue_arg_is_symbol
+    ActionMailer::Base.deliver_later_queue_name = "mailers"
+
+    assert_nothing_raised do
+      assert_enqueued_email_with TestHelperMailer, :test, queue: :mailers do
+        silence_stream($stdout) do
+          TestHelperMailer.test.deliver_later
+        end
+      end
+    end
+  end
+
+  def test_assert_enqueued_email_with_when_mailer_has_custom_delivery_job
+    assert_nothing_raised do
+      assert_enqueued_email_with CustomDeliveryMailer, :test do
+        silence_stream($stdout) do
+          CustomDeliveryMailer.test.deliver_later
+        end
+      end
+    end
+  end
+
+  def test_assert_enqueued_email_with_with_no_block
+    assert_nothing_raised do
+      silence_stream($stdout) do
+        TestHelperMailer.test.deliver_later
+        assert_enqueued_email_with TestHelperMailer, :test
+      end
+    end
+  end
+
+  def test_assert_enqueued_email_with_with_args
+    assert_nothing_raised do
+      assert_enqueued_email_with TestHelperMailer, :test_args, args: ["some_email", "some_name"] do
+        silence_stream($stdout) do
+          TestHelperMailer.test_args("some_email", "some_name").deliver_later
+        end
+      end
+    end
+  end
+
+  def test_assert_enqueued_email_with_with_no_block_with_args
+    assert_nothing_raised do
+      silence_stream($stdout) do
+        TestHelperMailer.test_args("some_email", "some_name").deliver_later
+        assert_enqueued_email_with TestHelperMailer, :test_args, args: ["some_email", "some_name"]
+      end
+    end
+  end
+
+  def test_assert_enqueued_email_with_with_parameterized_args
+    assert_nothing_raised do
+      assert_enqueued_email_with TestHelperMailer, :test_parameter_args, args: { all: "good" } do
+        silence_stream($stdout) do
+          TestHelperMailer.with(all: "good").test_parameter_args.deliver_later
+        end
+      end
+    end
+  end
+
+  def test_assert_enqueued_email_with_with_no_block_with_parameterized_args
+    assert_nothing_raised do
+      silence_stream($stdout) do
+        TestHelperMailer.with(all: "good").test_parameter_args.deliver_later
+        assert_enqueued_email_with TestHelperMailer, :test_parameter_args, args: { all: "good" }
+      end
+    end
   end
 end
 

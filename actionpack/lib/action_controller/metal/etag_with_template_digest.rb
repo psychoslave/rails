@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActionController
   # When our views change, they should bubble up into HTTP cache freshness
   # and bust browser caches. So the template digest for the current action
@@ -22,13 +24,10 @@ module ActionController
     include ActionController::ConditionalGet
 
     included do
-      class_attribute :etag_with_template_digest
-      self.etag_with_template_digest = true
+      class_attribute :etag_with_template_digest, default: true
 
-      ActiveSupport.on_load :action_view, yield: true do
-        etag do |options|
-          determine_template_etag(options) if etag_with_template_digest
-        end
+      etag do |options|
+        determine_template_etag(options) if etag_with_template_digest
       end
     end
 
@@ -45,12 +44,12 @@ module ActionController
       # template digest from the ETag.
       def pick_template_for_etag(options)
         unless options[:template] == false
-          options[:template] || "#{controller_path}/#{action_name}"
+          options[:template] || lookup_context.find_all(action_name, _prefixes).first&.virtual_path
         end
       end
 
       def lookup_and_digest_template(template)
-        ActionView::Digestor.digest name: template, finder: lookup_context
+        ActionView::Digestor.digest name: template, format: nil, finder: lookup_context
       end
   end
 end

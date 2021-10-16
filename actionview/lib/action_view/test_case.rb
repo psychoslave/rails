@@ -1,4 +1,6 @@
-require "active_support/core_ext/module/remove_method"
+# frozen_string_literal: true
+
+require "active_support/core_ext/module/redefine_method"
 require "action_controller"
 require "action_controller/test_case"
 require "action_view"
@@ -14,11 +16,16 @@ module ActionView
       attr_accessor :request, :response, :params
 
       class << self
-        attr_writer :controller_path
+        # Overrides AbstractController::Base#controller_path
+        attr_accessor :controller_path
       end
 
       def controller_path=(path)
-        self.class.controller_path = (path)
+        self.class.controller_path = path
+      end
+
+      def self.controller_name
+        "test"
       end
 
       def initialize
@@ -71,10 +78,11 @@ module ActionView
         def helper_method(*methods)
           # Almost a duplicate from ActionController::Helpers
           methods.flatten.each do |method|
-            _helpers.module_eval <<-end_eval
+            _helpers_for_modification.module_eval <<~end_eval, __FILE__, __LINE__ + 1
               def #{method}(*args, &block)                    # def current_user(*args, &block)
-                _test_case.send(%(#{method}), *args, &block)  #   _test_case.send(%(current_user), *args, &block)
+                _test_case.send(:'#{method}', *args, &block)  #   _test_case.send(:'current_user', *args, &block)
               end                                             # end
+              ruby2_keywords(:'#{method}')
             end_eval
           end
         end
@@ -91,7 +99,6 @@ module ActionView
         end
 
       private
-
         def include_helper_modules!
           helper(helper_class) if helper_class
           include _helpers
@@ -99,15 +106,17 @@ module ActionView
       end
 
       def setup_with_controller
-        @controller = ActionView::TestCase::TestController.new
+        controller_class = Class.new(ActionView::TestCase::TestController)
+        @controller = controller_class.new
         @request = @controller.request
+        @view_flow = ActionView::OutputFlow.new
         # empty string ensures buffer has UTF-8 encoding as
         # new without arguments returns ASCII-8BIT encoded buffer like String#new
         @output_buffer = ActiveSupport::SafeBuffer.new ""
-        @rendered = ""
+        @rendered = +""
 
-        make_test_case_available_to_view!
-        say_no_to_protect_against_forgery!
+        test_case_instance = self
+        controller_class.define_method(:_test_case) { test_case_instance }
       end
 
       def config
@@ -122,6 +131,10 @@ module ActionView
 
       def rendered_views
         @_rendered_views ||= RenderedViewsCollection.new
+      end
+
+      def _routes
+        @controller._routes if @controller.respond_to?(:_routes)
       end
 
       # Need to experiment if this priority is the best one: rendered => output_buffer
@@ -153,32 +166,22 @@ module ActionView
       included do
         setup :setup_with_controller
         ActiveSupport.run_load_hooks(:action_view_test_case, self)
-      end
 
-    private
-
-      # Need to experiment if this priority is the best one: rendered => output_buffer
-      def document_root_element
-        Nokogiri::HTML::Document.parse(@rendered.blank? ? @output_buffer : @rendered).root
-      end
-
-      def say_no_to_protect_against_forgery!
-        _helpers.module_eval do
-          remove_possible_method :protect_against_forgery?
+        helper do
           def protect_against_forgery?
             false
           end
+
+          def _test_case
+            controller._test_case
+          end
         end
       end
 
-      def make_test_case_available_to_view!
-        test_case_instance = self
-        _helpers.module_eval do
-          unless private_method_defined?(:_test_case)
-            define_method(:_test_case) { test_case_instance }
-            private :_test_case
-          end
-        end
+    private
+      # Need to experiment if this priority is the best one: rendered => output_buffer
+      def document_root_element
+        Nokogiri::HTML::Document.parse(@rendered.blank? ? @output_buffer : @rendered).root
       end
 
       module Locals
@@ -240,6 +243,7 @@ module ActionView
         :@test_passed,
         :@view,
         :@view_context_class,
+        :@view_flow,
         :@_subscribers,
         :@html_document
       ]
@@ -258,15 +262,11 @@ module ActionView
         end]
       end
 
-      def _routes
-        @controller._routes if @controller.respond_to?(:_routes)
-      end
-
       def method_missing(selector, *args)
         begin
           routes = @controller.respond_to?(:_routes) && @controller._routes
         rescue
-          # Dont call routes, if there is an error on _routes call
+          # Don't call routes, if there is an error on _routes call
         end
 
         if routes &&
@@ -276,6 +276,18 @@ module ActionView
         else
           super
         end
+      end
+
+      def respond_to_missing?(name, include_private = false)
+        begin
+          routes = defined?(@controller) && @controller.respond_to?(:_routes) && @controller._routes
+        rescue
+          # Don't call routes, if there is an error on _routes call
+        end
+
+        routes &&
+          (routes.named_routes.route_defined?(name) ||
+           routes.mounted_helpers.method_defined?(name))
       end
     end
 

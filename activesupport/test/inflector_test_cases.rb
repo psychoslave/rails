@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module InflectorTestCases
   SingularToPlural = {
     "search"      => "searches",
@@ -117,7 +119,8 @@ module InflectorTestCases
     "Product"               => "product",
     "SpecialGuest"          => "special_guest",
     "ApplicationController" => "application_controller",
-    "Area51Controller"      => "area51_controller"
+    "Area51Controller"      => "area51_controller",
+    "AppCDir"               => "app_c_dir",
   }
 
   UnderscoreToLowerCamel = {
@@ -140,6 +143,7 @@ module InflectorTestCases
     "FreeBSD"               => "free_bsd",
     "HTML"                  => "html",
     "ForceXMLController"    => "force_xml_controller",
+    :product                => "product",
   }
 
   CamelWithModuleToUnderscoreWithSlash = {
@@ -160,7 +164,8 @@ module InflectorTestCases
 
   ClassNameToTableName = {
     "PrimarySpokesman" => "primary_spokesmen",
-    "NodeChild"        => "node_children"
+    "NodeChild"        => "node_children",
+    "Calculu"          => "calculus" # Singular names are not handled correctly
   }
 
   StringToParameterized = {
@@ -219,7 +224,7 @@ module InflectorTestCases
     "Test with malformed utf8 \251"       => "test_with_malformed_utf8"
   }
 
-  StringToParameterizePreserceCaseWithUnderscore = {
+  StringToParameterizePreserveCaseWithUnderscore = {
     "Donald E. Knuth"                     => "Donald_E_Knuth",
     "Random text with *(bad)* characters" => "Random_text_with_bad_characters",
     "With-some-dashes"                    => "With-some-dashes",
@@ -248,10 +253,25 @@ module InflectorTestCases
     "_external_id"    => "External"
   }
 
+  UnderscoreToHumanWithKeepIdSuffix = {
+    "this_is_a_string_ending_with_id" => "This is a string ending with id",
+    "employee_id"                => "Employee id",
+    "employee_id_something_else" => "Employee id something else",
+    "underground"               => "Underground",
+    "_id"                       => "Id",
+    "_external_id"              => "External id"
+  }
+
   UnderscoreToHumanWithoutCapitalize = {
     "employee_salary" => "employee salary",
     "employee_id"     => "employee",
     "underground"     => "underground"
+  }
+
+  MixtureToTitleCaseWithKeepIdSuffix = {
+    "this_is_a_string_ending_with_id" => "This Is A String Ending With Id",
+    "EmployeeId"                      => "Employee Id",
+    "Author Id"                       => "Author Id"
   }
 
   MixtureToTitleCase = {
@@ -271,6 +291,10 @@ module InflectorTestCases
     "¿por qué?"             => "¿Por Qué?",
     "Fred’s"                => "Fred’s",
     "Fred`s"                => "Fred`s",
+    "this was 'fake news'"  => "This Was 'Fake News'",
+    "new name(s)"           => "New Name(s)",
+    "new (names)"           => "New (Names)",
+    "their (mis)deeds"      => "Their (Mis)deeds",
     ActiveSupport::SafeBuffer.new("confirmation num") => "Confirmation Num"
   }
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "cases/migration/helper"
 
 module ActiveRecord
@@ -65,7 +67,7 @@ module ActiveRecord
       if current_adapter?(:Mysql2Adapter)
         def test_mysql_rename_column_preserves_auto_increment
           rename_column "test_models", "id", "id_test"
-          assert connection.columns("test_models").find { |c| c.name == "id_test" }.auto_increment?
+          assert_predicate connection.columns("test_models").find { |c| c.name == "id_test" }, :auto_increment?
           TestModel.reset_column_information
         ensure
           rename_column "test_models", "id_test", "id"
@@ -107,18 +109,10 @@ module ActiveRecord
         add_index "test_models", ["hat_style", "hat_size"], unique: true
 
         rename_column "test_models", "hat_size", "size"
-        if current_adapter? :OracleAdapter
-          assert_equal ["i_test_models_hat_style_size"], connection.indexes("test_models").map(&:name)
-        else
-          assert_equal ["index_test_models_on_hat_style_and_size"], connection.indexes("test_models").map(&:name)
-        end
+        assert_equal ["index_test_models_on_hat_style_and_size"], connection.indexes("test_models").map(&:name)
 
         rename_column "test_models", "hat_style", "style"
-        if current_adapter? :OracleAdapter
-          assert_equal ["i_test_models_style_size"], connection.indexes("test_models").map(&:name)
-        else
-          assert_equal ["index_test_models_on_style_and_size"], connection.indexes("test_models").map(&:name)
-        end
+        assert_equal ["index_test_models_on_style_and_size"], connection.indexes("test_models").map(&:name)
       end
 
       def test_rename_column_does_not_rename_custom_named_index
@@ -140,6 +134,10 @@ module ActiveRecord
       end
 
       def test_remove_column_with_multi_column_index
+        # MariaDB starting with 10.2.8
+        # Dropping a column that is part of a multi-column UNIQUE constraint is not permitted.
+        skip if current_adapter?(:Mysql2Adapter) && connection.mariadb? && connection.database_version >= "10.2.8"
+
         add_column "test_models", :hat_size, :integer
         add_column "test_models", :hat_style, :string, limit: 100
         add_index "test_models", ["hat_style", "hat_size"], unique: true
@@ -217,21 +215,31 @@ module ActiveRecord
 
       def test_change_column_with_nil_default
         add_column "test_models", "contributor", :boolean, default: true
-        assert TestModel.new.contributor?
+        assert_predicate TestModel.new, :contributor?
 
         change_column "test_models", "contributor", :boolean, default: nil
         TestModel.reset_column_information
-        assert_not TestModel.new.contributor?
+        assert_not_predicate TestModel.new, :contributor?
+        assert_nil TestModel.new.contributor
+      end
+
+      def test_change_column_to_drop_default_with_null_false
+        add_column "test_models", "contributor", :boolean, default: true, null: false
+        assert_predicate TestModel.new, :contributor?
+
+        change_column "test_models", "contributor", :boolean, default: nil, null: false
+        TestModel.reset_column_information
+        assert_not_predicate TestModel.new, :contributor?
         assert_nil TestModel.new.contributor
       end
 
       def test_change_column_with_new_default
         add_column "test_models", "administrator", :boolean, default: true
-        assert TestModel.new.administrator?
+        assert_predicate TestModel.new, :administrator?
 
         change_column "test_models", "administrator", :boolean, default: false
         TestModel.reset_column_information
-        assert_not TestModel.new.administrator?
+        assert_not_predicate TestModel.new, :administrator?
       end
 
       def test_change_column_with_custom_index_name
@@ -246,7 +254,7 @@ module ActiveRecord
 
       def test_change_column_with_long_index_name
         table_name_prefix = "test_models_"
-        long_index_name = table_name_prefix + ("x" * (connection.allowed_index_name_length - table_name_prefix.length))
+        long_index_name = table_name_prefix + ("x" * (connection.index_name_length - table_name_prefix.length))
         add_column "test_models", "category", :string
         add_index :test_models, :category, name: long_index_name
 
@@ -301,6 +309,37 @@ module ActiveRecord
         assert connection.index_exists?("my_table", :item_number, name: :index_my_table_on_item_number)
       ensure
         connection.drop_table(:my_table) rescue nil
+      end
+
+      def test_add_column_without_column_name
+        e = assert_raise ArgumentError do
+          connection.create_table "my_table", force: true do |t|
+            t.timestamp
+          end
+        end
+        assert_equal "Missing column name(s) for timestamp", e.message
+      ensure
+        connection.drop_table :my_table, if_exists: true
+      end
+
+      def test_remove_columns_single_statement
+        connection.create_table "my_table" do |t|
+          t.integer "col_one"
+          t.integer "col_two"
+        end
+
+        # SQLite3's ALTER TABLE statement has several limitations. To manage
+        # this, the adapter creates a temporary table, copies the data, drops
+        # the old table, creates the new table, then copies the data back.
+        expected_query_count = current_adapter?(:SQLite3Adapter) ? 12 : 1
+        assert_queries(expected_query_count) do
+          connection.remove_columns("my_table", "col_one", "col_two")
+        end
+
+        columns = connection.columns("my_table").map(&:name)
+        assert_equal ["id"], columns
+      ensure
+        connection.drop_table :my_table, if_exists: true
       end
     end
   end

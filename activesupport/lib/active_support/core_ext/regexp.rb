@@ -1,9 +1,14 @@
-class Regexp #:nodoc:
+# frozen_string_literal: true
+
+class Regexp
+  # Returns +true+ if the regexp has the multiline flag set.
+  #
+  #   (/./).multiline?  # => false
+  #   (/./m).multiline? # => true
+  #
+  #   Regexp.new(".").multiline?                    # => false
+  #   Regexp.new(".", Regexp::MULTILINE).multiline? # => true
   def multiline?
     options & MULTILINE == MULTILINE
   end
-
-  def match?(string, pos = 0)
-    !!match(string, pos)
-  end unless //.respond_to?(:match?)
 end

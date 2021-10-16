@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "isolation/abstract_unit"
 
 module ApplicationTests
@@ -19,13 +21,16 @@ module ApplicationTests
 
     test "default middleware stack" do
       add_to_config "config.active_record.migration_error = :page_load"
+      add_to_config "config.server_timing = true"
 
       boot!
 
       assert_equal [
+        "ActionDispatch::HostAuthorization",
         "Rack::Sendfile",
         "ActionDispatch::Static",
         "ActionDispatch::Executor",
+        "ActionDispatch::ServerTiming",
         "ActiveSupport::Cache::Strategy::LocalCache",
         "Rack::Runtime",
         "Rack::MethodOverride",
@@ -40,9 +45,49 @@ module ApplicationTests
         "ActionDispatch::Cookies",
         "ActionDispatch::Session::CookieStore",
         "ActionDispatch::Flash",
+        "ActionDispatch::ContentSecurityPolicy::Middleware",
+        "ActionDispatch::PermissionsPolicy::Middleware",
         "Rack::Head",
         "Rack::ConditionalGet",
-        "Rack::ETag"
+        "Rack::ETag",
+        "Rack::TempfileReaper"
+      ], middleware
+    end
+
+    test "default middleware stack when requests are local" do
+      add_to_config "config.consider_all_requests_local = true"
+      add_to_config "config.active_record.migration_error = :page_load"
+      add_to_config "config.server_timing = true"
+
+      boot!
+
+      assert_equal [
+        "ActionDispatch::HostAuthorization",
+        "Rack::Sendfile",
+        "ActionDispatch::Static",
+        "ActionDispatch::Executor",
+        "ActionDispatch::ServerTiming",
+        "ActiveSupport::Cache::Strategy::LocalCache",
+        "Rack::Runtime",
+        "Rack::MethodOverride",
+        "ActionDispatch::RequestId",
+        "ActionDispatch::RemoteIp",
+        "Rails::Rack::Logger",
+        "ActionDispatch::ShowExceptions",
+        "ActionDispatch::DebugExceptions",
+        "ActionDispatch::ActionableExceptions",
+        "ActionDispatch::Reloader",
+        "ActionDispatch::Callbacks",
+        "ActiveRecord::Migration::CheckPending",
+        "ActionDispatch::Cookies",
+        "ActionDispatch::Session::CookieStore",
+        "ActionDispatch::Flash",
+        "ActionDispatch::ContentSecurityPolicy::Middleware",
+        "ActionDispatch::PermissionsPolicy::Middleware",
+        "Rack::Head",
+        "Rack::ConditionalGet",
+        "Rack::ETag",
+        "Rack::TempfileReaper"
       ], middleware
     end
 
@@ -52,6 +97,7 @@ module ApplicationTests
       boot!
 
       assert_equal [
+        "ActionDispatch::HostAuthorization",
         "Rack::Sendfile",
         "ActionDispatch::Static",
         "ActionDispatch::Executor",
@@ -134,7 +180,7 @@ module ApplicationTests
       add_to_config "config.ssl_options = { redirect: { host: 'example.com' } }"
       boot!
 
-      assert_equal [{ redirect: { host: "example.com" } }], Rails.application.middleware.first.args
+      assert_equal [{ redirect: { host: "example.com" }, ssl_default_redirect_status: 308 }], Rails.application.middleware[1].args
     end
 
     test "removing Active Record omits its middleware" do
@@ -218,7 +264,7 @@ module ApplicationTests
     test "insert middleware after" do
       add_to_config "config.middleware.insert_after Rack::Sendfile, Rack::Config"
       boot!
-      assert_equal "Rack::Config", middleware.second
+      assert_equal "Rack::Config", middleware.third
     end
 
     test "unshift middleware" do
@@ -228,25 +274,27 @@ module ApplicationTests
     end
 
     test "Rails.cache does not respond to middleware" do
-      add_to_config "config.cache_store = :memory_store"
+      add_to_config "config.cache_store = :memory_store, { timeout: 10 }"
       boot!
-      assert_equal "Rack::Runtime", middleware.fourth
+      assert_equal "Rack::Runtime", middleware[4]
+      assert_instance_of ActiveSupport::Cache::MemoryStore, Rails.cache
     end
 
     test "Rails.cache does respond to middleware" do
       boot!
-      assert_equal "Rack::Runtime", middleware.fifth
+      assert_equal "ActiveSupport::Cache::Strategy::LocalCache", middleware[4]
+      assert_equal "Rack::Runtime", middleware[5]
     end
 
     test "insert middleware before" do
       add_to_config "config.middleware.insert_before Rack::Sendfile, Rack::Config"
       boot!
-      assert_equal "Rack::Config", middleware.first
+      assert_equal "Rack::Config", middleware.second
     end
 
     test "can't change middleware after it's built" do
       boot!
-      assert_raise RuntimeError do
+      assert_raise FrozenError do
         app.config.middleware.use Rack::Config
       end
     end
@@ -274,7 +322,7 @@ module ApplicationTests
       assert_equal "max-age=0, private, must-revalidate", last_response.headers["Cache-Control"]
       assert_equal etag, last_response.headers["Etag"]
 
-      get "/", {}, "HTTP_IF_NONE_MATCH" => etag
+      get "/", {}, { "HTTP_IF_NONE_MATCH" => etag }
       assert_equal 304, last_response.status
       assert_equal "", last_response.body
       assert_nil last_response.headers["Content-Type"]
@@ -298,7 +346,6 @@ module ApplicationTests
     end
 
     private
-
       def boot!
         require "#{app_path}/config/environment"
       end

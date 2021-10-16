@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "active_support"
 require "active_support/testing/autorun"
 require "rails/configuration"
@@ -13,6 +15,11 @@ module Rails
 
       def test_playback_insert_before
         @stack.insert_before :foo
+        assert_playback :insert_before, :foo
+      end
+
+      def test_playback_insert
+        @stack.insert :foo
         assert_playback :insert_before, :foo
       end
 
@@ -36,23 +43,37 @@ module Rails
         assert_playback :delete, :foo
       end
 
+      def test_playback_move_before
+        @stack.move_before :foo
+        assert_playback :move_before, :foo
+      end
+
+      def test_playback_move
+        @stack.move :foo
+        assert_playback :move_before, :foo
+      end
+
+      def test_playback_move_after
+        @stack.move_after :foo
+        assert_playback :move_after, :foo
+      end
+
       def test_order
         @stack.swap :foo
         @stack.delete :foo
 
         mock = Minitest::Mock.new
-        mock.expect :send, nil, [:swap, :foo]
-        mock.expect :send, nil, [:delete, :foo]
+        mock.expect :swap, nil, [:foo]
+        mock.expect :delete, nil, [:foo]
 
         @stack.merge_into mock
         mock.verify
       end
 
       private
-
         def assert_playback(msg_name, args)
           mock = Minitest::Mock.new
-          mock.expect :send, nil, [msg_name, args]
+          mock.expect msg_name, nil, [args]
           @stack.merge_into(mock)
           mock.verify
         end

@@ -1,8 +1,8 @@
+# frozen_string_literal: true
+
 require "active_support"
-require "active_support/dependencies/autoload"
 require "active_support/core_ext/enumerable"
 require "active_support/core_ext/object/blank"
-require "active_support/core_ext/hash/transform_values"
 
 require "thor"
 
@@ -23,20 +23,35 @@ module Rails
       end
 
       def environment # :nodoc:
-        ENV["RAILS_ENV"] || ENV["RACK_ENV"] || "development"
+        ENV["RAILS_ENV"].presence || ENV["RACK_ENV"].presence || "development"
       end
 
       # Receives a namespace, arguments and the behavior to invoke the command.
-      def invoke(namespace, args = [], **config)
-        namespace = namespace.to_s
-        namespace = "help" if namespace.blank? || HELP_MAPPINGS.include?(namespace)
-        namespace = "version" if %w( -v --version ).include? namespace
+      def invoke(full_namespace, args = [], **config)
+        namespace = full_namespace = full_namespace.to_s
 
-        if command = find_by_namespace(namespace)
-          command.perform(namespace, args, config)
+        if char = namespace =~ /:(\w+)$/
+          command_name, namespace = $1, namespace.slice(0, char)
         else
-          find_by_namespace("rake").perform(namespace, args, config)
+          command_name = namespace
         end
+
+        command_name, namespace = "help", "help" if command_name.blank? || HELP_MAPPINGS.include?(command_name)
+        command_name, namespace, args = "application", "application", ["--help"] if rails_new_with_no_path?(args)
+        command_name, namespace = "version", "version" if %w( -v --version ).include?(command_name)
+
+        original_argv = ARGV.dup
+        ARGV.replace(args)
+
+        command = find_by_namespace(namespace, command_name)
+        if command && command.all_commands[command_name]
+          command.perform(command_name, args, config)
+        else
+          args = ["--describe", full_namespace] if HELP_MAPPINGS.include?(args[0])
+          find_by_namespace("rake").perform(full_namespace, args, config)
+        end
+      ensure
+        ARGV.replace(original_argv)
       end
 
       # Rails finds namespaces similar to Thor, it only adds one rule:
@@ -44,16 +59,16 @@ module Rails
       # Command names must end with "_command.rb". This is required because Rails
       # looks in load paths and loads the command just before it's going to be used.
       #
-      #   find_by_namespace :webrat, :rails, :integration
+      #   find_by_namespace :webrat, :integration
       #
       # Will search for the following commands:
       #
-      #   "rails:webrat", "webrat:integration", "webrat"
+      #   "webrat", "webrat:integration", "rails:webrat", "rails:webrat:integration"
       #
-      # Notice that "rails:commands:webrat" could be loaded as well, what
-      # Rails looks for is the first and last parts of the namespace.
-      def find_by_namespace(name) # :nodoc:
-        lookups = [ name, "rails:#{name}" ]
+      def find_by_namespace(namespace, command_name = nil) # :nodoc:
+        lookups = [ namespace ]
+        lookups << "#{namespace}:#{command_name}" if command_name
+        lookups.concat lookups.map { |lookup| "rails:#{lookup}" }
 
         lookup(lookups)
 
@@ -71,20 +86,25 @@ module Rails
       end
 
       def print_commands # :nodoc:
-        sorted_groups.each { |b, n| print_list(b, n) }
-      end
-
-      def sorted_groups # :nodoc:
-        lookup!
-
-        groups = (subclasses - hidden_commands).group_by { |c| c.namespace.split(":").first }
-        groups.transform_values! { |commands| commands.flat_map(&:printing_commands).sort }
-
-        rails = groups.delete("rails")
-        [[ "rails", rails ]] + groups.sort.to_a
+        commands.each { |command| puts("  #{command}") }
       end
 
       private
+        COMMANDS_IN_USAGE = %w(generate console server test test:system dbconsole new)
+        private_constant :COMMANDS_IN_USAGE
+
+        def rails_new_with_no_path?(args)
+          args == ["new"]
+        end
+
+        def commands
+          lookup!
+
+          visible_commands = (subclasses - hidden_commands).flat_map(&:printing_commands)
+
+          (visible_commands - COMMANDS_IN_USAGE).sort
+        end
+
         def command_type # :doc:
           @command_type ||= "command"
         end

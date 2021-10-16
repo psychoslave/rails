@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "cases/helper"
 require "models/topic"
 require "models/customer"
@@ -23,8 +25,8 @@ require "models/chef"
 require "models/department"
 require "models/cake_designer"
 require "models/drink_designer"
-require "models/mocktail_designer"
 require "models/recipe"
+require "models/user_with_invalid_relation"
 
 class ReflectionTest < ActiveRecord::TestCase
   include ActiveRecord::Reflection
@@ -65,13 +67,18 @@ class ReflectionTest < ActiveRecord::TestCase
 
   def test_column_string_type_and_limit
     assert_equal :string, @first.column_for_attribute("title").type
+    assert_equal :string, @first.column_for_attribute(:title).type
+    assert_equal :string, @first.type_for_attribute("title").type
+    assert_equal :string, @first.type_for_attribute(:title).type
+    assert_equal :string, @first.type_for_attribute("heading").type
+    assert_equal :string, @first.type_for_attribute(:heading).type
     assert_equal 250, @first.column_for_attribute("title").limit
   end
 
   def test_column_null_not_null
     subscriber = Subscriber.first
     assert subscriber.column_for_attribute("name").null
-    assert !subscriber.column_for_attribute("nick").null
+    assert_not subscriber.column_for_attribute("nick").null
   end
 
   def test_human_name_for_column
@@ -80,6 +87,9 @@ class ReflectionTest < ActiveRecord::TestCase
 
   def test_integer_columns
     assert_equal :integer, @first.column_for_attribute("id").type
+    assert_equal :integer, @first.column_for_attribute(:id).type
+    assert_equal :integer, @first.type_for_attribute("id").type
+    assert_equal :integer, @first.type_for_attribute(:id).type
   end
 
   def test_non_existent_columns_return_null_object
@@ -88,12 +98,20 @@ class ReflectionTest < ActiveRecord::TestCase
     assert_equal "attribute_that_doesnt_exist", column.name
     assert_nil column.sql_type
     assert_nil column.type
+
+    column = @first.column_for_attribute(:attribute_that_doesnt_exist)
+    assert_instance_of ActiveRecord::ConnectionAdapters::NullColumn, column
   end
 
   def test_non_existent_types_are_identity_types
     type = @first.type_for_attribute("attribute_that_doesnt_exist")
     object = Object.new
 
+    assert_equal object, type.deserialize(object)
+    assert_equal object, type.cast(object)
+    assert_equal object, type.serialize(object)
+
+    type = @first.type_for_attribute(:attribute_that_doesnt_exist)
     assert_equal object, type.deserialize(object)
     assert_equal object, type.cast(object)
     assert_equal object, type.serialize(object)
@@ -118,6 +136,19 @@ class ReflectionTest < ActiveRecord::TestCase
     end
     reflection = ActiveRecord::Reflection.create(:has_many, "plurales_irregulares", nil, {}, ActiveRecord::Base)
     assert_equal "PluralIrregular", reflection.class_name
+  end
+
+  def test_reflection_klass_is_not_ar_subclass
+    [:account_invalid,
+     :account_class_name,
+     :info_invalids,
+     :infos_class_name,
+     :infos_through_class_name,
+    ].each do |rel|
+      assert_raise(ArgumentError) do
+        UserWithInvalidRelation.reflect_on_association(rel).klass
+      end
+    end
   end
 
   def test_aggregation_reflection
@@ -148,7 +179,7 @@ class ReflectionTest < ActiveRecord::TestCase
     expected = Pirate.reflect_on_all_associations.select { |r| r.options[:autosave] }
     received = Pirate.reflect_on_all_autosave_associations
 
-    assert !received.empty?
+    assert_not_empty received
     assert_not_equal Pirate.reflect_on_all_associations.length, received.length
     assert_equal expected, received
   end
@@ -229,7 +260,7 @@ class ReflectionTest < ActiveRecord::TestCase
   end
 
   def test_reflections_should_return_keys_as_strings
-    assert Category.reflections.keys.all? { |key| key.is_a? String }, "Model.reflections is expected to return string for keys"
+    assert Category.reflections.keys.all?(String), "Model.reflections is expected to return string for keys"
   end
 
   def test_has_and_belongs_to_many_reflection
@@ -252,46 +283,35 @@ class ReflectionTest < ActiveRecord::TestCase
     assert_equal expected, actual
   end
 
-  def test_scope_chain
-    expected = [
-      [Tagging.reflect_on_association(:tag).scope, Post.reflect_on_association(:first_blue_tags).scope],
-      [Post.reflect_on_association(:first_taggings).scope],
-      [Author.reflect_on_association(:misc_posts).scope]
-    ]
-    actual = Author.reflect_on_association(:misc_post_first_blue_tags).scope_chain
-    assert_equal expected, actual
-
-    expected = [
-      [
-        Tagging.reflect_on_association(:blue_tag).scope,
-        Post.reflect_on_association(:first_blue_tags_2).scope,
-        Author.reflect_on_association(:misc_post_first_blue_tags_2).scope
-      ],
-      [],
-      []
-    ]
-    actual = Author.reflect_on_association(:misc_post_first_blue_tags_2).scope_chain
-    assert_equal expected, actual
-  end
-
   def test_scope_chain_does_not_interfere_with_hmt_with_polymorphic_case
-    @hotel = Hotel.create!
-    @department = @hotel.departments.create!
-    @department.chefs.create!(employable: CakeDesigner.create!)
-    @department.chefs.create!(employable: DrinkDesigner.create!)
+    hotel = Hotel.create!
+    department = hotel.departments.create!
+    department.chefs.create!(employable: CakeDesigner.create!)
+    department.chefs.create!(employable: DrinkDesigner.create!)
 
-    assert_equal 1, @hotel.cake_designers.size
-    assert_equal 1, @hotel.drink_designers.size
-    assert_equal 2, @hotel.chefs.size
+    assert_equal 1, hotel.cake_designers.size
+    assert_equal 1, hotel.cake_designers.count
+    assert_equal 1, hotel.drink_designers.size
+    assert_equal 1, hotel.drink_designers.count
+    assert_equal 2, hotel.chefs.size
+    assert_equal 2, hotel.chefs.count
   end
 
   def test_scope_chain_does_not_interfere_with_hmt_with_polymorphic_case_and_sti
-    @hotel = Hotel.create!
-    @hotel.mocktail_designers << MocktailDesigner.create!
+    hotel = Hotel.create!
+    hotel.mocktail_designers << MocktailDesigner.create!
 
-    assert_equal 1, @hotel.mocktail_designers.size
-    assert_equal 1, @hotel.mocktail_designers.count
-    assert_equal 1, @hotel.chef_lists.size
+    assert_equal 1, hotel.mocktail_designers.size
+    assert_equal 1, hotel.mocktail_designers.count
+    assert_equal 1, hotel.chef_lists.size
+    assert_equal 1, hotel.chef_lists.count
+
+    hotel.mocktail_designers = []
+
+    assert_equal 0, hotel.mocktail_designers.size
+    assert_equal 0, hotel.mocktail_designers.count
+    assert_equal 0, hotel.chef_lists.size
+    assert_equal 0, hotel.chef_lists.count
   end
 
   def test_scope_chain_of_polymorphic_association_does_not_leak_into_other_hmt_associations
@@ -311,18 +331,18 @@ class ReflectionTest < ActiveRecord::TestCase
   end
 
   def test_nested?
-    assert !Author.reflect_on_association(:comments).nested?
-    assert Author.reflect_on_association(:tags).nested?
+    assert_not_predicate Author.reflect_on_association(:comments), :nested?
+    assert_predicate Author.reflect_on_association(:tags), :nested?
 
     # Only goes :through once, but the through_reflection is a has_and_belongs_to_many, so this is
     # a nested through association
-    assert Category.reflect_on_association(:post_comments).nested?
+    assert_predicate Category.reflect_on_association(:post_comments), :nested?
   end
 
   def test_association_primary_key
     # Normal association
     assert_equal "id",   Author.reflect_on_association(:posts).association_primary_key.to_s
-    assert_equal "name", Author.reflect_on_association(:essay).association_primary_key.to_s
+    assert_equal "id",   Author.reflect_on_association(:essay).association_primary_key.to_s
     assert_equal "name", Essay.reflect_on_association(:writer).association_primary_key.to_s
 
     # Through association (uses the :primary_key option from the source reflection)
@@ -351,42 +371,49 @@ class ReflectionTest < ActiveRecord::TestCase
     assert_raises(ActiveRecord::UnknownPrimaryKey) { reflection.active_record_primary_key }
   end
 
+  def test_type
+    assert_equal "taggable_type", Post.reflect_on_association(:taggings).type.to_s
+    assert_equal "imageable_class", Post.reflect_on_association(:images).type.to_s
+    assert_nil Post.reflect_on_association(:readers).type
+  end
+
   def test_foreign_type
     assert_equal "sponsorable_type", Sponsor.reflect_on_association(:sponsorable).foreign_type.to_s
     assert_equal "sponsorable_type", Sponsor.reflect_on_association(:thing).foreign_type.to_s
+    assert_nil Sponsor.reflect_on_association(:sponsor_club).foreign_type
   end
 
   def test_collection_association
-    assert Pirate.reflect_on_association(:birds).collection?
-    assert Pirate.reflect_on_association(:parrots).collection?
+    assert_predicate Pirate.reflect_on_association(:birds), :collection?
+    assert_predicate Pirate.reflect_on_association(:parrots), :collection?
 
-    assert !Pirate.reflect_on_association(:ship).collection?
-    assert !Ship.reflect_on_association(:pirate).collection?
+    assert_not_predicate Pirate.reflect_on_association(:ship), :collection?
+    assert_not_predicate Ship.reflect_on_association(:pirate), :collection?
   end
 
   def test_default_association_validation
-    assert ActiveRecord::Reflection.create(:has_many, :clients, nil, {}, Firm).validate?
+    assert_predicate ActiveRecord::Reflection.create(:has_many, :clients, nil, {}, Firm), :validate?
 
-    assert !ActiveRecord::Reflection.create(:has_one, :client, nil, {}, Firm).validate?
-    assert !ActiveRecord::Reflection.create(:belongs_to, :client, nil, {}, Firm).validate?
+    assert_not_predicate ActiveRecord::Reflection.create(:has_one, :client, nil, {}, Firm), :validate?
+    assert_not_predicate ActiveRecord::Reflection.create(:belongs_to, :client, nil, {}, Firm), :validate?
   end
 
   def test_always_validate_association_if_explicit
-    assert ActiveRecord::Reflection.create(:has_one, :client, nil, { validate: true }, Firm).validate?
-    assert ActiveRecord::Reflection.create(:belongs_to, :client, nil, { validate: true }, Firm).validate?
-    assert ActiveRecord::Reflection.create(:has_many, :clients, nil, { validate: true }, Firm).validate?
+    assert_predicate ActiveRecord::Reflection.create(:has_one, :client, nil, { validate: true }, Firm), :validate?
+    assert_predicate ActiveRecord::Reflection.create(:belongs_to, :client, nil, { validate: true }, Firm), :validate?
+    assert_predicate ActiveRecord::Reflection.create(:has_many, :clients, nil, { validate: true }, Firm), :validate?
   end
 
   def test_validate_association_if_autosave
-    assert ActiveRecord::Reflection.create(:has_one, :client, nil, { autosave: true }, Firm).validate?
-    assert ActiveRecord::Reflection.create(:belongs_to, :client, nil, { autosave: true }, Firm).validate?
-    assert ActiveRecord::Reflection.create(:has_many, :clients, nil, { autosave: true }, Firm).validate?
+    assert_predicate ActiveRecord::Reflection.create(:has_one, :client, nil, { autosave: true }, Firm), :validate?
+    assert_predicate ActiveRecord::Reflection.create(:belongs_to, :client, nil, { autosave: true }, Firm), :validate?
+    assert_predicate ActiveRecord::Reflection.create(:has_many, :clients, nil, { autosave: true }, Firm), :validate?
   end
 
   def test_never_validate_association_if_explicit
-    assert !ActiveRecord::Reflection.create(:has_one, :client, nil, { autosave: true, validate: false }, Firm).validate?
-    assert !ActiveRecord::Reflection.create(:belongs_to, :client, nil, { autosave: true, validate: false }, Firm).validate?
-    assert !ActiveRecord::Reflection.create(:has_many, :clients, nil, { autosave: true, validate: false }, Firm).validate?
+    assert_not_predicate ActiveRecord::Reflection.create(:has_one, :client, nil, { autosave: true, validate: false }, Firm), :validate?
+    assert_not_predicate ActiveRecord::Reflection.create(:belongs_to, :client, nil, { autosave: true, validate: false }, Firm), :validate?
+    assert_not_predicate ActiveRecord::Reflection.create(:has_many, :clients, nil, { autosave: true, validate: false }, Firm), :validate?
   end
 
   def test_foreign_key
@@ -394,10 +421,8 @@ class ReflectionTest < ActiveRecord::TestCase
     assert_equal "category_id", Post.reflect_on_association(:categorizations).foreign_key.to_s
   end
 
-  def test_through_reflection_scope_chain_does_not_modify_other_reflections
-    orig_conds = Post.reflect_on_association(:first_blue_tags_2).scope_chain.inspect
-    Author.reflect_on_association(:misc_post_first_blue_tags_2).scope_chain
-    assert_equal orig_conds, Post.reflect_on_association(:first_blue_tags_2).scope_chain.inspect
+  def test_foreign_key_is_inferred_from_model_name
+    assert_equal "post_id", PostRecord.reflect_on_association(:comments).foreign_key.to_s
   end
 
   def test_symbol_for_class_name
@@ -405,9 +430,17 @@ class ReflectionTest < ActiveRecord::TestCase
   end
 
   def test_class_for_class_name
-    assert_deprecated do
-      assert_predicate ActiveRecord::Reflection.create(:has_many, :clients, nil, { class_name: Client }, Firm), :validate?
+    error = assert_raises(ArgumentError) do
+      ActiveRecord::Reflection.create(:has_many, :clients, nil, { class_name: Client }, Firm)
     end
+    assert_equal "A class was passed to `:class_name` but we are expecting a string.", error.message
+  end
+
+  def test_class_for_source_type
+    error = assert_raises(ArgumentError) do
+      ActiveRecord::Reflection.create(:has_many, :tagged_posts, nil, { through: :taggings, source: :taggable, source_type: Post }, Tag)
+    end
+    assert_equal "A class was passed to `:source_type` but we are expecting a string.", error.message
   end
 
   def test_join_table
@@ -506,7 +539,7 @@ class ReflectionTest < ActiveRecord::TestCase
     def assert_reflection(klass, association, options)
       assert reflection = klass.reflect_on_association(association)
       options.each do |method, value|
-        assert_equal(value, reflection.send(method))
+        assert_equal(value, reflection.public_send(method))
       end
     end
 end

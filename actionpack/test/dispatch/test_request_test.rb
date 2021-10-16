@@ -1,7 +1,9 @@
+# frozen_string_literal: true
+
 require "abstract_unit"
 
 class TestRequestTest < ActiveSupport::TestCase
-  test "sane defaults" do
+  test "reasonable defaults" do
     env = ActionDispatch::TestRequest.create.env
 
     assert_equal "GET", env.delete("REQUEST_METHOD")

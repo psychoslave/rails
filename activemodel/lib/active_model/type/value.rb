@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActiveModel
   module Type
     class Value
@@ -7,6 +9,14 @@ module ActiveModel
         @precision = precision
         @scale = scale
         @limit = limit
+      end
+
+      # Returns true if this type can convert +value+ to a type that is usable
+      # by the database.  For example a boolean type can return +true+ if the
+      # value parameter is a Ruby boolean, but may return +false+ if the value
+      # parameter is some other object.
+      def serializable?(value)
+        true
       end
 
       def type # :nodoc:
@@ -84,6 +94,14 @@ module ActiveModel
         false
       end
 
+      def value_constructed_by_mass_assignment?(_value) # :nodoc:
+        false
+      end
+
+      def force_equality?(_value) # :nodoc:
+        false
+      end
+
       def map(value) # :nodoc:
         yield value
       end
@@ -100,11 +118,10 @@ module ActiveModel
         [self.class, precision, scale, limit].hash
       end
 
-      def assert_valid_value(*)
+      def assert_valid_value(_)
       end
 
       private
-
         # Convenience method for types which do not need separate type casting
         # behavior for user and database inputs. Called by Value#cast for
         # values except +nil+.

@@ -1,19 +1,21 @@
+# frozen_string_literal: true
+
 module ActiveJob
   # == Active Job adapters
   #
-  # Active Job has adapters for the following queueing backends:
+  # Active Job has adapters for the following queuing backends:
   #
   # * {Backburner}[https://github.com/nesquena/backburner]
   # * {Delayed Job}[https://github.com/collectiveidea/delayed_job]
-  # * {Qu}[https://github.com/bkeepers/qu]
   # * {Que}[https://github.com/chanks/que]
   # * {queue_classic}[https://github.com/QueueClassic/queue_classic]
   # * {Resque}[https://github.com/resque/resque]
-  # * {Sidekiq}[http://sidekiq.org]
+  # * {Sidekiq}[https://sidekiq.org]
   # * {Sneakers}[https://github.com/jondot/sneakers]
   # * {Sucker Punch}[https://github.com/brandonhilkert/sucker_punch]
-  # * {Active Job Async Job}[http://api.rubyonrails.org/classes/ActiveJob/QueueAdapters/AsyncAdapter.html]
-  # * {Active Job Inline}[http://api.rubyonrails.org/classes/ActiveJob/QueueAdapters/InlineAdapter.html]
+  # * {Active Job Async Job}[https://api.rubyonrails.org/classes/ActiveJob/QueueAdapters/AsyncAdapter.html]
+  # * {Active Job Inline}[https://api.rubyonrails.org/classes/ActiveJob/QueueAdapters/InlineAdapter.html]
+  # * Please Note: We are not accepting pull requests for new adapters. See the {README}[link:files/activejob/README_md.html] for more details.
   #
   # === Backends Features
   #
@@ -21,7 +23,6 @@ module ActiveJob
   #   |-------------------|-------|--------|------------|------------|---------|---------|
   #   | Backburner        | Yes   | Yes    | Yes        | Yes        | Job     | Global  |
   #   | Delayed Job       | Yes   | Yes    | Yes        | Job        | Global  | Global  |
-  #   | Qu                | Yes   | Yes    | No         | No         | No      | Global  |
   #   | Que               | Yes   | Yes    | Yes        | Job        | No      | Job     |
   #   | queue_classic     | Yes   | Yes    | Yes*       | No         | No      | No      |
   #   | Resque            | Yes   | Yes    | Yes (Gem)  | Queue      | Global  | Yes     |
@@ -51,7 +52,7 @@ module ActiveJob
   #
   # No: The adapter will run jobs at the next opportunity and cannot use perform_later.
   #
-  # N/A: The adapter does not support queueing.
+  # N/A: The adapter does not support queuing.
   #
   # NOTE:
   # queue_classic supports job scheduling since version 3.1.
@@ -71,9 +72,9 @@ module ActiveJob
   # Yes: Allows the priority to be set on the job object, at the queue level or
   # as default configuration option.
   #
-  # No: Does not allow the priority of jobs to be configured.
+  # No: The adapter does not allow the priority of jobs to be configured.
   #
-  # N/A: The adapter does not support queueing, and therefore sorting them.
+  # N/A: The adapter does not support queuing, and therefore sorting them.
   #
   # ==== Timeout
   #
@@ -84,6 +85,8 @@ module ActiveJob
   # Queue: The timeout is set for all jobs on the queue.
   #
   # Global: The adapter is configured that all jobs have a maximum run time.
+  #
+  # No: The adapter does not allow the timeout of jobs to be configured.
   #
   # N/A: This adapter does not run in a separate process, and therefore timeout
   # is unsupported.
@@ -97,6 +100,8 @@ module ActiveJob
   # that can be restarted.
   #
   # Global: The adapter has a global number of retries.
+  #
+  # No: The adapter does not allow the number of retries to be configured.
   #
   # N/A: The adapter does not run in a separate process, and therefore doesn't
   # support retries.
@@ -112,7 +117,6 @@ module ActiveJob
     autoload :InlineAdapter
     autoload :BackburnerAdapter
     autoload :DelayedJobAdapter
-    autoload :QuAdapter
     autoload :QueAdapter
     autoload :QueueClassicAdapter
     autoload :ResqueAdapter
@@ -121,7 +125,7 @@ module ActiveJob
     autoload :SuckerPunchAdapter
     autoload :TestAdapter
 
-    ADAPTER = "Adapter".freeze
+    ADAPTER = "Adapter"
     private_constant :ADAPTER
 
     class << self

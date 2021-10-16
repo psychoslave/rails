@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "queue_classic"
 
 module ActiveJob
@@ -17,13 +19,13 @@ module ActiveJob
     #
     #   Rails.application.config.active_job.queue_adapter = :queue_classic
     class QueueClassicAdapter
-      def enqueue(job) #:nodoc:
+      def enqueue(job) # :nodoc:
         qc_job = build_queue(job.queue_name).enqueue("#{JobWrapper.name}.perform", job.serialize)
         job.provider_job_id = qc_job["id"] if qc_job.is_a?(Hash)
         qc_job
       end
 
-      def enqueue_at(job, timestamp) #:nodoc:
+      def enqueue_at(job, timestamp) # :nodoc:
         queue = build_queue(job.queue_name)
         unless queue.respond_to?(:enqueue_at)
           raise NotImplementedError, "To be able to schedule jobs with queue_classic " \
@@ -44,7 +46,7 @@ module ActiveJob
         QC::Queue.new(queue_name)
       end
 
-      class JobWrapper #:nodoc:
+      class JobWrapper # :nodoc:
         class << self
           def perform(job_data)
             Base.execute job_data

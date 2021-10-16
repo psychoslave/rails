@@ -1,8 +1,12 @@
+# frozen_string_literal: true
+
+require "action_view/helpers/tag_helper"
+
 module ActionView
   # = Action View Debug Helper
   #
   # Provides a set of methods for making it easier to debug Rails objects.
-  module Helpers
+  module Helpers # :nodoc:
     module DebugHelper
       include TagHelper
 
@@ -22,7 +26,7 @@ module ActionView
       #     created_at:
       #   </pre>
       def debug(object)
-        Marshal::dump(object)
+        Marshal.dump(object)
         object = ERB::Util.html_escape(object.to_yaml)
         content_tag(:pre, object, class: "debug_dump")
       rescue # errors from Marshal or YAML

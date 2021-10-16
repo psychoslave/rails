@@ -1,17 +1,18 @@
+# frozen_string_literal: true
+
 require "active_support/core_ext/hash/except"
-require "active_support/core_ext/object/try"
+require "active_support/core_ext/module/redefine_method"
 require "active_support/core_ext/hash/indifferent_access"
 
 module ActiveRecord
-  module NestedAttributes #:nodoc:
+  module NestedAttributes # :nodoc:
     class TooManyRecords < ActiveRecordError
     end
 
     extend ActiveSupport::Concern
 
     included do
-      class_attribute :nested_attributes_options, instance_writer: false
-      self.nested_attributes_options = {}
+      class_attribute :nested_attributes_options, instance_writer: false, default: {}
     end
 
     # = Active Record Nested Attributes
@@ -59,6 +60,18 @@ module ActiveRecord
     #
     #   params = { member: { avatar_attributes: { id: '2', icon: 'sad' } } }
     #   member.update params[:member]
+    #   member.avatar.icon # => 'sad'
+    #
+    # If you want to update the current avatar without providing the id, you must add <tt>:update_only</tt> option.
+    #
+    #   class Member < ActiveRecord::Base
+    #     has_one :avatar
+    #     accepts_nested_attributes_for :avatar, update_only: true
+    #   end
+    #
+    #   params = { member: { avatar_attributes: { icon: 'sad' } } }
+    #   member.update params[:member]
+    #   member.avatar.id # => 2
     #   member.avatar.icon # => 'sad'
     #
     # By default you will only be able to set and update attributes on the
@@ -167,7 +180,7 @@ module ActiveRecord
     #   member.posts.second.title # => '[UPDATED] other post'
     #
     # However, the above applies if the parent model is being updated as well.
-    # For example, If you wanted to create a +member+ named _joe_ and wanted to
+    # For example, if you wanted to create a +member+ named _joe_ and wanted to
     # update the +posts+ at the same time, that would give an
     # ActiveRecord::RecordNotFound error.
     #
@@ -232,18 +245,19 @@ module ActiveRecord
     #
     # === Validating the presence of a parent model
     #
-    # If you want to validate that a child record is associated with a parent
-    # record, you can use the +validates_presence_of+ method and the +:inverse_of+
-    # key as this example illustrates:
+    # The +belongs_to+ association validates the presence of the parent model
+    # by default. You can disable this behavior by specifying <code>optional: true</code>.
+    # This can be used, for example, when conditionally validating the presence
+    # of the parent model:
     #
-    #   class Member < ActiveRecord::Base
-    #     has_many :posts, inverse_of: :member
-    #     accepts_nested_attributes_for :posts
+    #   class Veterinarian < ActiveRecord::Base
+    #     has_many :patients, inverse_of: :veterinarian
+    #     accepts_nested_attributes_for :patients
     #   end
     #
-    #   class Post < ActiveRecord::Base
-    #     belongs_to :member, inverse_of: :posts
-    #     validates_presence_of :member
+    #   class Patient < ActiveRecord::Base
+    #     belongs_to :veterinarian, inverse_of: :patients, optional: true
+    #     validates :veterinarian, presence: true, unless: -> { awaiting_intake }
     #   end
     #
     # Note that if you do not specify the +:inverse_of+ option, then
@@ -275,7 +289,7 @@ module ActiveRecord
       # [:allow_destroy]
       #   If true, destroys any members from the attributes hash with a
       #   <tt>_destroy</tt> key and a value that evaluates to +true+
-      #   (eg. 1, '1', true, or 'true'). This option is off by default.
+      #   (e.g. 1, '1', true, or 'true'). This option is off by default.
       # [:reject_if]
       #   Allows you to specify a Proc or a Symbol pointing to a method
       #   that checks whether a record should be built for a certain attribute
@@ -340,7 +354,6 @@ module ActiveRecord
       end
 
       private
-
         # Generates a writer method for this association. Serves as a point for
         # accessing the objects in the association. For example, this method
         # could generate the following:
@@ -354,9 +367,7 @@ module ActiveRecord
         # associations are just regular associations.
         def generate_association_writer(association_name, type)
           generated_association_methods.module_eval <<-eoruby, __FILE__, __LINE__ + 1
-            if method_defined?(:#{association_name}_attributes=)
-              remove_method(:#{association_name}_attributes=)
-            end
+            silence_redefinition_of_method :#{association_name}_attributes=
             def #{association_name}_attributes=(attributes)
               assign_nested_attributes_for_#{type}_association(:#{association_name}, attributes)
             end
@@ -374,7 +385,6 @@ module ActiveRecord
     end
 
     private
-
       # Attribute hash keys that should not be assigned as normal attributes.
       # These hash keys are nested attributes implementation details.
       UNASSIGNABLE_KEYS = %w( id _destroy )
@@ -414,7 +424,7 @@ module ActiveRecord
             existing_record.assign_attributes(assignable_attributes)
             association(association_name).initialize_attributes(existing_record)
           else
-            method = "build_#{association_name}"
+            method = :"build_#{association_name}"
             if respond_to?(method)
               send(method, assignable_attributes)
             else
@@ -458,7 +468,7 @@ module ActiveRecord
         end
 
         unless attributes_collection.is_a?(Hash) || attributes_collection.is_a?(Array)
-          raise ArgumentError, "Hash or Array expected, got #{attributes_collection.class.name} (#{attributes_collection.inspect})"
+          raise ArgumentError, "Hash or Array expected for attribute `#{association_name}`, got #{attributes_collection.class.name} (#{attributes_collection.inspect})"
         end
 
         check_record_limit!(options[:limit], attributes_collection)
@@ -477,7 +487,7 @@ module ActiveRecord
         existing_records = if association.loaded?
           association.target
         else
-          attribute_ids = attributes_collection.map { |a| a["id"] || a[:id] }.compact
+          attribute_ids = attributes_collection.filter_map { |a| a["id"] || a[:id] }
           attribute_ids.empty? ? [] : association.scope.where(association.klass.primary_key => attribute_ids)
         end
 
@@ -489,7 +499,7 @@ module ActiveRecord
 
           if attributes["id"].blank?
             unless reject_new_record?(association_name, attributes)
-              association.build(attributes.except(*UNASSIGNABLE_KEYS))
+              association.reader.build(attributes.except(*UNASSIGNABLE_KEYS))
             end
           elsif existing_record = existing_records.detect { |record| record.id.to_s == attributes["id"].to_s }
             unless call_reject_if(association_name, attributes)
@@ -500,7 +510,7 @@ module ActiveRecord
               if target_record
                 existing_record = target_record
               else
-                association.add_to_target(existing_record, :skip_callbacks)
+                association.add_to_target(existing_record, skip_callbacks: true)
               end
 
               assign_to_or_mark_for_destruction(existing_record, attributes, options[:allow_destroy])

@@ -1,4 +1,6 @@
-require "abstract_unit"
+# frozen_string_literal: true
+
+require_relative "abstract_unit"
 
 module ActiveSupport
   class BroadcastLoggerTest < TestCase
@@ -16,7 +18,7 @@ module ActiveSupport
       level = Logger::Severity.const_get(level_name)
 
       test "##{method} adds the message to all loggers" do
-        logger.send(method, "msg")
+        logger.public_send(method, "msg")
 
         assert_equal [level, "msg", nil], log1.adds.first
         assert_equal [level, "msg", nil], log2.adds.first
@@ -113,6 +115,8 @@ module ActiveSupport
     end
 
     class CustomLogger
+      include ActiveSupport::LoggerSilence
+
       attr_reader :adds, :closed, :chevrons
       attr_accessor :level, :progname, :formatter, :local_level
 
@@ -164,7 +168,6 @@ module ActiveSupport
     end
 
     class FakeLogger < CustomLogger
-      include LoggerSilence
     end
   end
 end

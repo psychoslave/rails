@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "abstract_unit"
 
 Category = Struct.new(:id, :name)
@@ -37,10 +39,25 @@ class FormCollectionsHelperTest < ActionView::TestCase
     assert_select "label[for=user_active_no]", "No"
   end
 
+  test "collection radio generates labels for non-English values correctly" do
+    with_collection_radio_buttons :user, :title, ["Господин", "Госпожа"], :to_s, :to_s
+
+    assert_select "input[type=radio]#user_title_господин"
+    assert_select "label[for=user_title_господин]", "Господин"
+  end
+
   test "collection radio should sanitize collection values for labels correctly" do
     with_collection_radio_buttons :user, :name, ["$0.99", "$1.99"], :to_s, :to_s
-    assert_select "label[for=user_name_099]", "$0.99"
-    assert_select "label[for=user_name_199]", "$1.99"
+    assert_select "label[for=user_name_0_99]", "$0.99"
+    assert_select "label[for=user_name_1_99]", "$1.99"
+  end
+
+  test "collection radio correctly builds unique DOM IDs for float values" do
+    with_collection_radio_buttons :user, :name, [1.0, 10], :to_s, :to_s
+    assert_select "label[for=user_name_1_0]", "1.0"
+    assert_select "label[for=user_name_10]", "10"
+    assert_select 'input#user_name_1_0[type=radio][value="1.0"]'
+    assert_select 'input#user_name_10[type=radio][value="10"]'
   end
 
   test "collection radio accepts checked item" do
@@ -86,7 +103,7 @@ class FormCollectionsHelperTest < ActionView::TestCase
 
   test "collection radio accepts html options as input" do
     collection = [[1, true], [0, false]]
-    with_collection_radio_buttons :user, :active, collection, :last, :first, {}, class: "special-radio"
+    with_collection_radio_buttons :user, :active, collection, :last, :first, {}, { class: "special-radio" }
 
     assert_select "input[type=radio][value=true].special-radio#user_active_true"
     assert_select "input[type=radio][value=false].special-radio#user_active_false"
@@ -201,21 +218,21 @@ class FormCollectionsHelperTest < ActionView::TestCase
     collection = [Category.new(1, "Category 1"), Category.new(2, "Category 2")]
     with_collection_radio_buttons :user, :category_ids, collection, :id, :name
 
-    assert_select "input[type=hidden][name='user[category_ids]'][value='']", count: 1
+    assert_select "input[type=hidden][name='user[category_ids]'][value=''][autocomplete='off']", count: 1
   end
 
   test "collection radio buttons generates a hidden field using the given :name in :html_options" do
     collection = [Category.new(1, "Category 1"), Category.new(2, "Category 2")]
-    with_collection_radio_buttons :user, :category_ids, collection, :id, :name, {}, name: "user[other_category_ids]"
+    with_collection_radio_buttons :user, :category_ids, collection, :id, :name, {}, { name: "user[other_category_ids]" }
 
-    assert_select "input[type=hidden][name='user[other_category_ids]'][value='']", count: 1
+    assert_select "input[type=hidden][name='user[other_category_ids]'][value=''][autocomplete='off']", count: 1
   end
 
   test "collection radio buttons generates a hidden field with index if it was provided" do
     collection = [Category.new(1, "Category 1"), Category.new(2, "Category 2")]
     with_collection_radio_buttons :user, :category_ids, collection, :id, :name, index: 322
 
-    assert_select "input[type=hidden][name='user[322][category_ids]'][value='']", count: 1
+    assert_select "input[type=hidden][name='user[322][category_ids]'][value=''][autocomplete='off']", count: 1
   end
 
   test "collection radio buttons does not generate a hidden field if include_hidden option is false" do
@@ -245,21 +262,21 @@ class FormCollectionsHelperTest < ActionView::TestCase
     collection = [Category.new(1, "Category 1"), Category.new(2, "Category 2")]
     with_collection_check_boxes :user, :category_ids, collection, :id, :name
 
-    assert_select "input[type=hidden][name='user[category_ids][]'][value='']", count: 1
+    assert_select "input[type=hidden][name='user[category_ids][]'][value=''][autocomplete='off']", count: 1
   end
 
   test "collection check boxes generates a hidden field using the given :name in :html_options" do
     collection = [Category.new(1, "Category 1"), Category.new(2, "Category 2")]
-    with_collection_check_boxes :user, :category_ids, collection, :id, :name, {}, name: "user[other_category_ids][]"
+    with_collection_check_boxes :user, :category_ids, collection, :id, :name, {}, { name: "user[other_category_ids][]" }
 
-    assert_select "input[type=hidden][name='user[other_category_ids][]'][value='']", count: 1
+    assert_select "input[type=hidden][name='user[other_category_ids][]'][value=''][autocomplete='off']", count: 1
   end
 
   test "collection check boxes generates a hidden field with index if it was provided" do
     collection = [Category.new(1, "Category 1"), Category.new(2, "Category 2")]
     with_collection_check_boxes :user, :category_ids, collection, :id, :name, index: 322
 
-    assert_select "input[type=hidden][name='user[322][category_ids][]'][value='']", count: 1
+    assert_select "input[type=hidden][name='user[322][category_ids][]'][value=''][autocomplete='off']", count: 1
   end
 
   test "collection check boxes does not generate a hidden field if include_hidden option is false" do
@@ -293,8 +310,23 @@ class FormCollectionsHelperTest < ActionView::TestCase
 
   test "collection check box should sanitize collection values for labels correctly" do
     with_collection_check_boxes :user, :name, ["$0.99", "$1.99"], :to_s, :to_s
-    assert_select "label[for=user_name_099]", "$0.99"
-    assert_select "label[for=user_name_199]", "$1.99"
+    assert_select "label[for=user_name_0_99]", "$0.99"
+    assert_select "label[for=user_name_1_99]", "$1.99"
+  end
+
+  test "collection check boxes correctly builds unique DOM IDs for float values" do
+    with_collection_check_boxes :user, :name, [1.0, 10], :to_s, :to_s
+    assert_select "label[for=user_name_1_0]", "1.0"
+    assert_select "label[for=user_name_10]", "10"
+    assert_select 'input#user_name_1_0[type=checkbox][value="1.0"]'
+    assert_select 'input#user_name_10[type=checkbox][value="10"]'
+  end
+
+  test "collection check boxes generates labels for non-English values correctly" do
+    with_collection_check_boxes :user, :title, ["Господин", "Госпожа"], :to_s, :to_s
+
+    assert_select "input[type=checkbox]#user_title_господин"
+    assert_select "label[for=user_title_господин]", "Господин"
   end
 
   test "collection check boxes accepts html options as the last element of array" do
@@ -430,7 +462,7 @@ class FormCollectionsHelperTest < ActionView::TestCase
 
   test "collection check boxes accepts html options" do
     collection = [[1, "Category 1"], [2, "Category 2"]]
-    with_collection_check_boxes :user, :category_ids, collection, :first, :last, {}, class: "check"
+    with_collection_check_boxes :user, :category_ids, collection, :first, :last, {}, { class: "check" }
 
     assert_select 'input.check[type=checkbox][value="1"]'
     assert_select 'input.check[type=checkbox][value="2"]'

@@ -1,7 +1,10 @@
+# frozen_string_literal: true
+
 class Reference < ActiveRecord::Base
   belongs_to :person
   belongs_to :job
 
+  has_many :ideal_jobs, class_name: "Job", foreign_key: :ideal_reference_id
   has_many :agents_posts_authors, through: :person
 
   class << self; attr_accessor :make_comments; end
@@ -18,5 +21,5 @@ end
 
 class BadReference < ActiveRecord::Base
   self.table_name = "references"
-  default_scope { where(favourite: false) }
+  default_scope { where(favorite: false) }
 end

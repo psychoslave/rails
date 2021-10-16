@@ -1,320 +1,278 @@
-*   Remove deprecated `ActionController::Metal.call`.
+*   Allow Capybara driver name overrides in `SystemTestCase::driven_by`
 
-    *Rafael Mendonça França*
+    Allow users to prevent conflicts among drivers that use the same driver
+    type (selenium, poltergeist, webkit, rack test).
 
-*   Remove deprecated `ActionController::Metal#env`.
+    Fixes #42502
 
-    *Rafael Mendonça França*
+    *Chris LaRose*
 
-*   Make `with_routing` test helper work when testing controllers inheriting from `ActionController::API`
+*   Allow multiline to be passed in routes when using wildcard segments.
 
-    *Julia López*
-
-*   Use accept header in integration tests with `as: :json`
-
-    Instead of appending the `format` to the request path, Rails will figure
-    out the format from the header instead.
-
-    This allows devs to use `:as` on routes that don't have a format.
-
-    Fixes #27144.
-
-    *Kasper Timm Hansen*
-
-*   Reset a new session directly after its creation in `ActionDispatch::IntegrationTest#open_session`.
-
-    Fixes #22742.
-
-    *Tawan Sierek*
-
-*   Fixes incorrect output from rails routes when using singular resources.
-
-    Fixes #26606.
-
-    *Erick Reyna*
-
-*   Fixes multiple calls to `logger.fatal` instead of a single call,
-    for every line in an exception backtrace, when printing trace
-    from `DebugExceptions` middleware.
-
-    Fixes #26134.
-
-    *Vipul A M*
-
-*   Add support for arbitrary hashes in strong parameters:
+    Previously routes with newlines weren't detected when using wildcard segments, returning
+    a `No route matches` error.
+    After this change, routes with newlines are detected on wildcard segments. Example
 
     ```ruby
-    params.permit(preferences: {})
+      draw do
+        get "/wildcard/*wildcard_segment", to: SimpleApp.new("foo#index"), as: :wildcard
+      end
+
+      # After the change, the path matches.
+      assert_equal "/wildcard/a%0Anewline", url_helpers.wildcard_path(wildcard_segment: "a\nnewline")
     ```
 
-    *Xavier Noria*
+    Fixes #39103
 
-*   Add `ActionController::Parameters#merge!`, which behaves the same as `Hash#merge!`.
+    *Ignacio Chiazzo*
 
-    *Yuji Yaginuma*
+*   Treat html suffix in controller translation.
 
-*   Allow keys not found in `RACK_KEY_TRANSLATION` for setting the environment when rendering
-    arbitrary templates.
+    *Rui Onodera*, *Gavin Miller*
 
-    *Sammy Larbi*
+*   Allow permitting numeric params.
 
-*   Remove deprecated support to non-keyword arguments in `ActionDispatch::IntegrationTest#process`,
-    `#get`, `#post`, `#patch`, `#put`, `#delete`, and `#head`.
+    Previously it was impossible to permit different fields on numeric parameters.
+    After this change you can specify different fields for each numbered parameter.
+    For example params like,
+    ```ruby
+    book: {
+            authors_attributes: {
+              '0': { name: "William Shakespeare", age_of_death: "52" },
+              '1': { name: "Unattributed Assistant" },
+              '2': "Not a hash",
+              'new_record': { name: "Some name" }
+            }
+          }
+    ```
 
-    *Rafael Mendonça França*
+    Before you could permit name on each author with,
+    `permit book: { authors_attributes: [ :name ] }`
 
-*   Remove deprecated `ActionDispatch::IntegrationTest#*_via_redirect`.
+    After this change you can permit different keys on each numbered element,
+    `permit book: { authors_attributes: { '1': [ :name ], '0': [ :name, :age_of_death ] } }`
 
-    *Rafael Mendonça França*
+    Fixes #41625
 
-*   Remove deprecated `ActionDispatch::IntegrationTest#xml_http_request`.
+    *Adam Hess*
 
-    *Rafael Mendonça França*
+*   Update `HostAuthorization` middleware to render debug info only
+    when `config.consider_all_requests_local` is set to true.
 
-*   Remove deprecated support for passing `:path` and route path as strings in `ActionDispatch::Routing::Mapper#match`.
+    Also, blocked host info is always logged with level `error`.
 
-    *Rafael Mendonça França*
+    Fixes #42813
 
-*   Remove deprecated support for passing path as `nil` in `ActionDispatch::Routing::Mapper#match`.
+    *Nikita Vyrko*
 
-    *Rafael Mendonça França*
+*  Add Server-Timing middleware
 
-*   Remove deprecated `cache_control` argument from `ActionDispatch::Static#initialize`.
+   Server-Timing specification defines how the server can communicate to browsers performance metrics
+   about the request it is responding to.
 
-    *Rafael Mendonça França*
+   The ServerTiming middleware is enabled by default on `development` environment by default using the
+   `config.server_timing` setting and set the relevant duration metrics in the `Server-Timing` header
 
-*   Remove deprecated support to passing strings or symbols to the middleware stack.
+   The full specification for Server-Timing header can be found in: https://www.w3.org/TR/server-timing/#dfn-server-timing-header-field
 
-    *Rafael Mendonça França*
+   *Sebastian Sogamoso*, *Guillermo Iguaran*
 
-*   Change HSTS subdomain to true.
 
-    *Rafael Mendonça França*
+## Rails 7.0.0.alpha2 (September 15, 2021) ##
 
-*   Remove deprecated `host` and `port` ssl options.
+*   No changes.
 
-    *Rafael Mendonça França*
 
-*   Remove deprecated `const_error` argument in
-    `ActionDispatch::Session::SessionRestoreError#initialize`.
+## Rails 7.0.0.alpha1 (September 15, 2021) ##
 
-    *Rafael Mendonça França*
+*   Use a static error message when raising `ActionDispatch::Http::Parameters::ParseError`
+    to avoid inadvertently logging the HTTP request body at the `fatal` level when it contains
+    malformed JSON.
 
-*   Remove deprecated `#original_exception` in `ActionDispatch::Session::SessionRestoreError`.
+    Fixes #41145
 
-    *Rafael Mendonça França*
+    *Aaron Lahey*
 
-*   Deprecate `ActionDispatch::ParamsParser::ParseError` in favor of
-    `ActionDispatch::Http::Parameters::ParseError`.
+*   Add `Middleware#delete!` to delete middleware or raise if not found.
 
-    *Rafael Mendonça França*
+    `Middleware#delete!` works just like `Middleware#delete` but will
+    raise an error if the middleware isn't found.
 
-*   Remove deprecated `ActionDispatch::ParamsParser`.
+    *Alex Ghiculescu*, *Petrik de Heus*, *Junichi Sato*
 
-    *Rafael Mendonça França*
+*   Raise error on unpermitted open redirects.
 
-*   Remove deprecated `original_exception` and `message` arguments in
-    `ActionDispatch::ParamsParser::ParseError#initialize`.
+    Add `allow_other_host` options to `redirect_to`.
+    Opt in to this behaviour with `ActionController::Base.raise_on_open_redirects = true`.
 
-    *Rafael Mendonça França*
+    *Gannon McGibbon*
 
-*   Remove deprecated `#original_exception` in `ActionDispatch::ParamsParser::ParseError`.
+*   Deprecate `poltergeist` and `webkit` (capybara-webkit) driver registration for system testing (they will be removed in Rails 7.1). Add `cuprite` instead.
 
-    *Rafael Mendonça França*
+    [Poltergeist](https://github.com/teampoltergeist/poltergeist) and [capybara-webkit](https://github.com/thoughtbot/capybara-webkit) are already not maintained. These usage in Rails are removed for avoiding confusing users.
 
-*   Remove deprecated access to mime types through constants.
+    [Cuprite](https://github.com/rubycdp/cuprite) is a good alternative to Poltergeist. Some guide descriptions are replaced from Poltergeist to Cuprite.
 
-    *Rafael Mendonça França*
+    *Yusuke Iwaki*
 
-*   Remove deprecated support to non-keyword arguments in `ActionController::TestCase#process`,
-    `#get`, `#post`, `#patch`, `#put`, `#delete`, and `#head`.
+*   Exclude additional flash types from `ActionController::Base.action_methods`.
 
-    *Rafael Mendonça França*
+    Ensures that additional flash types defined on ActionController::Base subclasses
+    are not listed as actions on that controller.
 
-*   Remove deprecated `xml_http_request` and `xhr` methods in `ActionController::TestCase`.
+        class MyController < ApplicationController
+          add_flash_types :hype
+        end
 
-    *Rafael Mendonça França*
+        MyController.action_methods.include?('hype') # => false
 
-*   Remove deprecated methods in `ActionController::Parameters`.
+    *Gavin Morrice*
 
-    *Rafael Mendonça França*
+*   OpenSSL constants are now used for Digest computations.
 
-*   Remove deprecated support to comparing a `ActionController::Parameters`
-    with a `Hash`.
+    *Dirkjan Bussink*
 
-    *Rafael Mendonça França*
+*   Remove IE6-7-8 file download related hack/fix from ActionController::DataStreaming module.
 
-*   Remove deprecated support to `:text` in `render`.
+    Due to the age of those versions of IE this fix is no longer relevant, more importantly it creates an edge-case for unexpected Cache-Control headers.
 
-    *Rafael Mendonça França*
+    *Tadas Sasnauskas*
 
-*   Remove deprecated support to `:nothing` in `render`.
+*   Configuration setting to skip logging an uncaught exception backtrace when the exception is
+    present in `rescued_responses`.
 
-    *Rafael Mendonça França*
+    It may be too noisy to get all backtraces logged for applications that manage uncaught
+    exceptions via `rescued_responses` and `exceptions_app`.
+    `config.action_dispatch.log_rescued_responses` (defaults to `true`) can be set to `false` in
+    this case, so that only exceptions not found in `rescued_responses` will be logged.
 
-*   Remove deprecated support to `:back` in `redirect_to`.
+    *Alexander Azarov*, *Mike Dalessio*
 
-    *Rafael Mendonça França*
+*   Ignore file fixtures on `db:fixtures:load`.
 
-*   Remove deprecated support to passing status as option `head`.
+    *Kevin Sjöberg*
 
-    *Rafael Mendonça França*
+*   Fix ActionController::Live controller test deadlocks by removing the body buffer size limit for tests.
 
-*   Remove deprecated support to passing original exception to `ActionController::BadRequest`
-    and the `ActionController::BadRequest#original_exception` method.
+    *Dylan Thacker-Smith*
 
-    *Rafael Mendonça França*
+*   New `ActionController::ConditionalGet#no_store` method to set HTTP cache control `no-store` directive.
 
-*   Remove deprecated methods `skip_action_callback`, `skip_filter`, `before_filter`,
-    `prepend_before_filter`, `skip_before_filter`, `append_before_filter`, `around_filter`
-    `prepend_around_filter`, `skip_around_filter`, `append_around_filter`, `after_filter`,
-    `prepend_after_filter`, `skip_after_filter` and `append_after_filter`.
+    *Tadas Sasnauskas*
 
-    *Rafael Mendonça França*
+*   Drop support for the `SERVER_ADDR` header.
 
-*   Show an "unmatched constraints" error when params fail to match constraints
-    on a matched route, rather than a "missing keys" error.
+    Following up https://github.com/rack/rack/pull/1573 and https://github.com/rails/rails/pull/42349.
 
-    Fixes #26470.
+    *Ricardo Díaz*
 
-    *Chris Carter*
+*   Set session options when initializing a basic session.
 
-*   Fix adding implicitly rendered template digests to ETags.
+    *Gannon McGibbon*
 
-    Fixes a case when modifying an implicitly rendered template for a
-    controller action using `fresh_when` or `stale?` would not result in a new
-    `ETag` value.
+*   Add `cache_control: {}` option to `fresh_when` and `stale?`.
 
-    *Javan Makhmali*
+    Works as a shortcut to set `response.cache_control` with the above methods.
 
-*   Make `fixture_file_upload` work in integration tests.
+    *Jacopo Beschi*
 
-    *Yuji Yaginuma*
+*   Writing into a disabled session will now raise an error.
 
-*   Add `to_param` to `ActionController::Parameters` deprecations.
+    Previously when no session store was set, writing into the session would silently fail.
 
-    In the future `ActionController::Parameters` are discouraged from being used
-    in URLs without explicit whitelisting. Go through `to_h` to use `to_param`.
+    *Jean Boussier*
 
-    *Kir Shatrov*
+*   Add support for 'require-trusted-types-for' and 'trusted-types' headers.
 
-*   Fix nested multiple roots
+    Fixes #42034.
 
-    The PR #20940 enabled the use of multiple roots with different constraints
-    at the top level but unfortunately didn't work when those roots were inside
-    a namespace and also broke the use of root inside a namespace after a top
-    level root was defined because the check for the existence of the named route
-    used the global :root name and not the namespaced name.
+    *lfalcao*
 
-    This is fixed by using the name_for_action method to expand the :root name to
-    the full namespaced name. We can pass nil for the second argument as we're not
-    dealing with resource definitions so don't need to handle the cases for edit
-    and new routes.
+*   Remove inline styles and address basic accessibility issues on rescue templates.
 
-    Fixes #26148.
+    *Jacob Herrington*
 
-    *Ryo Hashimoto*, *Andrew White*
+*   Add support for 'private, no-store' Cache-Control headers.
 
-*   Include the content of the flash in the auto-generated etag. This solves the following problem:
+    Previously, 'no-store' was exclusive; no other directives could be specified.
 
-      1. POST /messages
-      2. redirect_to messages_url, notice: 'Message was created'
-      3. GET /messages/1
-      4. GET /messages
+    *Alex Smith*
 
-      Step 4 would before still include the flash message, even though it's no longer relevant,
-      because the etag cache was recorded with the flash in place and didn't change when it was gone.
+*   Expand payload of `unpermitted_parameters.action_controller` instrumentation to allow subscribers to
+    know which controller action received unpermitted parameters.
+
+    *bbuchalter*
+
+*   Add `ActionController::Live#send_stream` that makes it more convenient to send generated streams:
+
+    ```ruby
+    send_stream(filename: "subscribers.csv") do |stream|
+      stream.writeln "email_address,updated_at"
+
+      @subscribers.find_each do |subscriber|
+        stream.writeln [ subscriber.email_address, subscriber.updated_at ].join(",")
+      end
+    end
+    ```
 
     *DHH*
 
-*   SSL: Changes redirect behavior for all non-GET and non-HEAD requests
-    (like POST/PUT/PATCH etc) to `http://` resources to redirect to `https://`
-    with a [307 status code](http://tools.ietf.org/html/rfc7231#section-6.4.7) instead of [301 status code](http://tools.ietf.org/html/rfc7231#section-6.4.2).
+*   Add `ActionController::Live::Buffer#writeln` to write a line to the stream with a newline included.
 
-    307 status code instructs the HTTP clients to preserve the original
-    request method while redirecting. It has been part of HTTP RFC since
-    1999 and is implemented/recognized by most (if not all) user agents.
+    *DHH*
 
-        # Before
-        POST http://example.com/articles (i.e. ArticlesContoller#create)
-        redirects to
-        GET https://example.com/articles (i.e. ArticlesContoller#index)
+*   `ActionDispatch::Request#content_type` now returned Content-Type header as it is.
 
-        # After
-        POST http://example.com/articles (i.e. ArticlesContoller#create)
-        redirects to
-        POST https://example.com/articles (i.e. ArticlesContoller#create)
+    Previously, `ActionDispatch::Request#content_type` returned value does NOT contain charset part.
+    This behavior changed to returned Content-Type header containing charset part as it is.
 
-   *Chirag Singhal*
+    If you want just MIME type, please use `ActionDispatch::Request#media_type` instead.
 
-*   Add `:as` option to `ActionController:TestCase#process` and related methods.
+    Before:
 
-    Specifying `as: mime_type` allows the `CONTENT_TYPE` header to be specified
-    in controller tests without manually doing this through `@request.headers['CONTENT_TYPE']`.
-
-    *Everest Stefan Munro-Zeisberger*
-
-*   Show cache hits and misses when rendering partials.
-
-    Partials using the `cache` helper will show whether a render hit or missed
-    the cache:
-
-    ```
-    Rendered messages/_message.html.erb in 1.2 ms [cache hit]
-    Rendered recordings/threads/_thread.html.erb in 1.5 ms [cache miss]
+    ```ruby
+    request = ActionDispatch::Request.new("CONTENT_TYPE" => "text/csv; header=present; charset=utf-16", "REQUEST_METHOD" => "GET")
+    request.content_type #=> "text/csv"
     ```
 
-    This removes the need for the old fragment cache logging:
+    After:
 
+    ```ruby
+    request = ActionDispatch::Request.new("Content-Type" => "text/csv; header=present; charset=utf-16", "REQUEST_METHOD" => "GET")
+    request.content_type #=> "text/csv; header=present; charset=utf-16"
+    request.media_type   #=> "text/csv"
     ```
-    Read fragment views/v1/2914079/v1/2914079/recordings/70182313-20160225015037000000/d0bdf2974e1ef6d31685c3b392ad0b74 (0.6ms)
-    Rendered messages/_message.html.erb in 1.2 ms [cache hit]
-    Write fragment views/v1/2914079/v1/2914079/recordings/70182313-20160225015037000000/3b4e249ac9d168c617e32e84b99218b5 (1.1ms)
-    Rendered recordings/threads/_thread.html.erb in 1.5 ms [cache miss]
-    ```
 
-    Though that full output can be reenabled with
-    `config.action_controller.enable_fragment_cache_logging = true`.
+    *Rafael Mendonça França*
 
-    *Stan Lo*
+*   Change `ActionDispatch::Request#media_type` to return `nil` when the request don't have a `Content-Type` header.
 
-*   Don't override the `Accept` header in integration tests when called with `xhr: true`.
+    *Rafael Mendonça França*
 
-    Fixes #25859.
+*   Fix error in `ActionController::LogSubscriber` that would happen when throwing inside a controller action.
 
-    *David Chen*
+    *Janko Marohnić*
 
-*   Fix `defaults` option for root route.
+*   Allow anything with `#to_str` (like `Addressable::URI`) as a `redirect_to` location.
 
-    A regression from some refactoring for the 5.0 release, this change
-    fixes the use of `defaults` (default parameters) in the `root` routing method.
+    *ojab*
 
-    *Chris Arcand*
+*   Change the request method to a `GET` when passing failed requests down to `config.exceptions_app`.
 
-*   Check `request.path_parameters` encoding at the point they're set.
+    *Alex Robbin*
 
-    Check for any non-UTF8 characters in path parameters at the point they're
-    set in `env`. Previously they were checked for when used to get a controller
-    class, but this meant routes that went directly to a Rack app, or skipped
-    controller instantiation for some other reason, had to defend against
-    non-UTF8 characters themselves.
+*   Deprecate the ability to assign a single value to `config.action_dispatch.trusted_proxies`
+    as `RemoteIp` middleware behaves inconsistently depending on whether this is configured
+    with a single value or an enumerable.
 
-    *Grey Baker*
+    Fixes #40772.
 
-*   Don't raise `ActionController::UnknownHttpMethod` from `ActionDispatch::Static`.
+    *Christian Sutter*
 
-    Pass `Rack::Request` objects to `ActionDispatch::FileHandler` to avoid it
-    raising `ActionController::UnknownHttpMethod`. If an unknown method is
-    passed, it should pass exception higher in the stack instead, once we've had a
-    chance to define exception handling behaviour.
+*   Add `redirect_back_or_to(fallback_location, **)` as a more aesthetically pleasing version of `redirect_back fallback_location:, **`.
+    The old method name is retained without explicit deprecation.
 
-    *Grey Baker*
+    *DHH*
 
-*   Handle `Rack::QueryParser` errors in `ActionDispatch::ExceptionWrapper`.
 
-    Updated `ActionDispatch::ExceptionWrapper` to handle the Rack 2.0 namespace
-    for `ParameterTypeError` and `InvalidParameterError` errors.
-
-    *Grey Baker*
-
-Please check [5-0-stable](https://github.com/rails/rails/blob/5-0-stable/actionpack/CHANGELOG.md) for previous changes.
+Please check [6-1-stable](https://github.com/rails/rails/blob/6-1-stable/actionpack/CHANGELOG.md) for previous changes.

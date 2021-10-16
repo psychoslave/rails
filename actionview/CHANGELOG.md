@@ -1,188 +1,197 @@
-*   Change the ERB handler from Erubis to Erubi.
+*   Allow `link_to` helper to infer link name from `Model#to_s` when it
+    is used with a single argument:
 
-    Erubi is an Erubis fork that's svelte, simple, and currently maintained.
-    Plus it supports `--enable-frozen-string-literal` in Ruby 2.3+.
+        link_to @profile
+        #=> <a href="/profiles/1">Eileen</a>
 
-    Compatibility: Drops support for `<%===` tags for debug output.
-    These were an unused, undocumented side effect of the Erubis
-    implementation.
+    This assumes the model class implements a `to_s` method like this:
 
-    Deprecation: The Erubis handler will be removed in Rails 5.2, for the
-    handful of folks using it directly.
+        class Profile < ApplicationRecord
+          # ...
+          def to_s
+            name
+          end
+        end
 
-    *Jeremy Evans*
+    Previously you had to supply a second argument even if the `Profile`
+    model implemented a `#to_s` method that called the `name` method.
 
-*   Allow render locals to be assigned to instance variables in a view.
+        link_to @profile, @profile.name
+        #=> <a href="/profiles/1">Eileen</a>
 
-    Fixes #27480.
+    *Olivier Lacan*
+
+*   Support svg unpaired tags for `tag` helper.
+
+        tag.svg { tag.use('href' => "#cool-icon") }
+        # => <svg><use href="#cool-icon"></svg>
+
+    *Oleksii Vasyliev*
+
+
+## Rails 7.0.0.alpha2 (September 15, 2021) ##
+
+*   No changes.
+
+
+## Rails 7.0.0.alpha1 (September 15, 2021) ##
+
+*   Improves the performance of ActionView::Helpers::NumberHelper formatters by avoiding the use of
+    exceptions as flow control.
+
+    *Mike Dalessio*
+
+*   `preload_link_tag` properly inserts `as` attributes for files with `image` MIME types, such as JPG or SVG.
+
+    *Nate Berkopec*
+
+*   Add `weekday_options_for_select` and `weekday_select` helper methods. Also adds `weekday_select` to `FormBuilder`.
+
+    *Drew Bragg*, *Dana Kashubeck*, *Kasper Timm Hansen*
+
+*   Add `caching?` helper that returns whether the current code path is being cached and `uncacheable!` to denote helper methods that can't participate in fragment caching.
+
+    *Ben Toews*, *John Hawthorn*, *Kasper Timm Hansen*, *Joel Hawksley*
+
+*   Add `include_seconds` option for `time_field`.
+
+        <%= form.time_field :foo, include_seconds: false %>
+        # => <input value="16:22" type="time" />
+
+    Default includes seconds:
+
+        <%= form.time_field :foo %>
+        # => <input value="16:22:01.440" type="time" />
+
+    This allows you to take advantage of [different rendering options](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input/time#time_value_format) in some browsers.
+
+    *Alex Ghiculescu*
+
+*   Improve error messages when template file does not exist at absolute filepath.
+
+    *Ted Whang*
+
+*   Add `:country_code` option to `sms_to` for consistency with `phone_to`.
+
+    *Jonathan Hefner*
+
+*   OpenSSL constants are now used for Digest computations.
+
+    *Dirkjan Bussink*
+
+*   The `translate` helper now passes `default` values that aren't
+    translation keys through `I18n.translate` for interpolation.
+
+    *Jonathan Hefner*
+
+*   Adds option `extname` to `stylesheet_link_tag` to skip default
+    `.css` extension appended to the stylesheet path.
+
+    Before:
+
+    ```ruby
+    stylesheet_link_tag "style.less"
+    # <link href="/stylesheets/style.less.scss" rel="stylesheet">
+    ```
+
+    After:
+
+    ```ruby
+    stylesheet_link_tag "style.less", extname: false, skip_pipeline: true, rel: "stylesheet/less"
+    # <link href="/stylesheets/style.less" rel="stylesheet/less">
+    ```
+
+    *Abhay Nikam*
+
+*   Deprecate `render` locals to be assigned to instance variables.
+
+    *Petrik de Heus*
+
+*   Remove legacy default `media=screen` from `stylesheet_link_tag`.
+
+    *André Luis Leal Cardoso Junior*
+
+*   Change `ActionView::Helpers::FormBuilder#button` to transform `formmethod`
+    attributes into `_method="$VERB"` Form Data to enable varied same-form actions:
+
+        <%= form_with model: post, method: :put do %>
+          <%= form.button "Update" %>
+          <%= form.button "Delete", formmethod: :delete %>
+        <% end %>
+        <%# => <form action="posts/1">
+            =>   <input type="hidden" name="_method" value="put">
+            =>   <button type="submit">Update</button>
+            =>   <button type="submit" formmethod="post" name="_method" value="delete">Delete</button>
+            => </form>
+        %>
+
+    *Sean Doyle*
+
+*   Change `ActionView::Helpers::UrlHelper#button_to` to *always* render a
+    `<button>` element, regardless of whether or not the content is passed as
+    the first argument or as a block.
+
+        <%= button_to "Delete", post_path(@post), method: :delete %>
+        # => <form action="/posts/1"><input type="hidden" name="_method" value="delete"><button type="submit">Delete</button></form>
+
+        <%= button_to post_path(@post), method: :delete do %>
+          Delete
+        <% end %>
+        # => <form action="/posts/1"><input type="hidden" name="_method" value="delete"><button type="submit">Delete</button></form>
+
+    *Sean Doyle*, *Dusan Orlovic*
+
+*   Add `config.action_view.preload_links_header` to allow disabling of
+    the `Link` header being added by default when using `stylesheet_link_tag`
+    and `javascript_include_tag`.
 
     *Andrew White*
 
-*   Add `check_parameters` option to `current_page?` which makes it more strict.
+*   The `translate` helper now resolves `default` values when a `nil` key is
+    specified, instead of always returning `nil`.
 
-    *Maksym Pugach*
+    *Jonathan Hefner*
 
-*   Return correct object name in form helper method after `fields_for`.
+*   Add `config.action_view.image_loading` to configure the default value of
+    the `image_tag` `:loading` option.
 
-    Fixes #26931.
+    By setting `config.action_view.image_loading = "lazy"`, an application can opt in to
+    lazy loading images sitewide, without changing view code.
 
-    *Yuji Yaginuma*
+    *Jonathan Hefner*
 
-*   Use `ActionView::Resolver.caching?` (`config.action_view.cache_template_loading`)
-    to enable template recompilation.
+*   `ActionView::Helpers::FormBuilder#id` returns the value
+    of the `<form>` element's `id` attribute. With a `method` argument, returns
+    the `id` attribute for a form field with that name.
 
-    Before it was enabled by `consider_all_requests_local`, which caused
-    recompilation in tests.
+        <%= form_for @post do |f| %>
+          <%# ... %>
 
-    *Max Melentiev*
+          <% content_for :sticky_footer do %>
+            <%= form.button(form: f.id) %>
+          <% end %>
+        <% end %>
 
-*   Add `form_with` to unify `form_tag` and `form_for` usage.
+    *Sean Doyle*
 
-    Used like `form_tag` (where just the open tag is output):
+*   `ActionView::Helpers::FormBuilder#field_id` returns the value generated by
+    the FormBuilder for the given attribute name.
 
-    ```erb
-    <%= form_with scope: :post, url: super_special_posts_path %>
-    ```
+        <%= form_for @post do |f| %>
+          <%= f.label :title %>
+          <%= f.text_field :title, aria: { describedby: f.field_id(:title, :error) } %>
+          <%= tag.span("is blank", id: f.field_id(:title, :error) %>
+        <% end %>
 
-    Used like `form_for`:
+    *Sean Doyle*
 
-    ```erb
-    <%= form_with model: @post do |form| %>
-      <%= form.text_field :title %>
-    <% end %>
-    ```
+*   Add `tag.attributes` to transform a Hash into HTML Attributes, ready to be
+    interpolated into ERB.
 
-    *Kasper Timm Hansen*, *Marek Kirejczyk*
+        <input <%= tag.attributes(type: :text, aria: { label: "Search" }) %> >
+        # => <input type="text" aria-label="Search">
 
-*   Add `fields` form helper method.
+    *Sean Doyle*
 
-    ```erb
-    <%= fields :comment, model: @comment do |fields| %>
-      <%= fields.text_field :title %>
-    <% end %>
-    ```
 
-    Can also be used within form helpers such as `form_with`.
-
-    *Kasper Timm Hansen*
-
-*   Removed deprecated `#original_exception` in `ActionView::Template::Error`.
-
-    *Rafael Mendonça França*
-
-*   Render now accepts any keys for locals, including reserved keywords.
-
-    Only locals with valid variable names get set directly. Others
-    will still be available in `local_assigns`.
-
-    Example of render with reserved keywords:
-
-    ```erb
-    <%= render "example", class: "text-center", message: "Hello world!" %>
-
-    <!-- _example.html.erb: -->
-    <%= tag.div class: local_assigns[:class] do %>
-      <p><%= message %></p>
-    <% end %>
-    ```
-
-    *Peter Schilling*, *Matthew Draper*
-
-*   Show cache hits and misses when rendering partials.
-
-    Partials using the `cache` helper will show whether a render hit or missed
-    the cache:
-
-    ```
-    Rendered messages/_message.html.erb in 1.2 ms [cache hit]
-    Rendered recordings/threads/_thread.html.erb in 1.5 ms [cache miss]
-    ```
-
-    This removes the need for the old fragment cache logging:
-
-    ```
-    Read fragment views/v1/2914079/v1/2914079/recordings/70182313-20160225015037000000/d0bdf2974e1ef6d31685c3b392ad0b74 (0.6ms)
-    Rendered messages/_message.html.erb in 1.2 ms [cache hit]
-    Write fragment views/v1/2914079/v1/2914079/recordings/70182313-20160225015037000000/3b4e249ac9d168c617e32e84b99218b5 (1.1ms)
-    Rendered recordings/threads/_thread.html.erb in 1.5 ms [cache miss]
-    ```
-
-    Though that full output can be reenabled with
-    `config.action_controller.enable_fragment_cache_logging = true`.
-
-    *Stan Lo*
-
-*   Changed partial rendering with a collection to allow collections which
-    implement `to_a`.
-
-    Extracting the collection option had an optimization to avoid unnecessary
-    queries of ActiveRecord Relations by calling `#to_ary` on the given
-    collection. Instances of `Enumerator` or `Enumerable` are valid
-    collections, but they do not implement `#to_ary`. By changing this to
-    `#to_a`, they will now be extracted and rendered as expected.
-
-    *Steven Harman*
-
-*   New syntax for tag helpers. Avoid positional parameters and support HTML5 by default.
-    Example usage of tag helpers before:
-
-    ```ruby
-    tag(:br, nil, true)
-    content_tag(:div, content_tag(:p, "Hello world!"), class: "strong")
-
-    <%= content_tag :div, class: "strong" do -%>
-      Hello world!
-    <% end -%>
-    ```
-
-    Example usage of tag helpers after:
-
-    ```ruby
-    tag.br
-    tag.div tag.p("Hello world!"), class: "strong"
-
-    <%= tag.div class: "strong" do %>
-      Hello world!
-    <% end %>
-    ```
-
-    *Marek Kirejczyk*, *Kasper Timm Hansen*
-
-*   Change `datetime_field` and `datetime_field_tag` to generate `datetime-local` fields.
-
-    As a new specification of the HTML 5 the text field type `datetime` will no longer exist
-    and it is recommended to use `datetime-local`.
-    Ref: https://html.spec.whatwg.org/multipage/forms.html#local-date-and-time-state-(type=datetime-local)
-
-    *Herminio Torres*
-
-*   Raw template handler (which is also the default template handler in Rails 5) now outputs
-    HTML-safe strings.
-
-    In Rails 5 the default template handler was changed to the raw template handler. Because
-    the ERB template handler escaped strings by default this broke some applications that
-    expected plain JS or HTML files to be rendered unescaped. This fixes the issue caused
-    by changing the default handler by changing the Raw template handler to output HTML-safe
-    strings.
-
-    *Eileen M. Uchitelle*
-
-*   `select_tag`'s `include_blank` option for generation for blank option tag, now adds an empty space label,
-     when the value as well as content for option tag are empty, so that we conform with html specification.
-     Ref: https://www.w3.org/TR/html5/forms.html#the-option-element.
-
-    Generation of option before:
-
-    ```html
-    <option value=""></option>
-    ```
-
-    Generation of option after:
-
-    ```html
-    <option value="" label=" "></option>
-    ```
-
-    *Vipul A M*
-
-Please check [5-0-stable](https://github.com/rails/rails/blob/5-0-stable/actionview/CHANGELOG.md) for previous changes.
+Please check [6-1-stable](https://github.com/rails/rails/blob/6-1-stable/actionview/CHANGELOG.md) for previous changes.

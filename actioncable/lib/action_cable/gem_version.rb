@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActionCable
   # Returns the version of the currently loaded Action Cable as a <tt>Gem::Version</tt>.
   def self.gem_version
@@ -5,10 +7,10 @@ module ActionCable
   end
 
   module VERSION
-    MAJOR = 5
-    MINOR = 1
+    MAJOR = 7
+    MINOR = 0
     TINY  = 0
-    PRE   = "alpha"
+    PRE   = "alpha2"
 
     STRING = [MAJOR, MINOR, TINY, PRE].compact.join(".")
   end

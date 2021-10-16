@@ -1,9 +1,11 @@
+# frozen_string_literal: true
+
 module ActiveSupport
   module Testing
     module Isolation
       require "thread"
 
-      def self.included(klass) #:nodoc:
+      def self.included(klass) # :nodoc:
         klass.class_eval do
           parallelize_me!
         end
@@ -43,7 +45,8 @@ module ActiveSupport
                   end
                 }
               end
-              result = Marshal.dump(dup)
+              test_result = defined?(Minitest::Result) ? Minitest::Result.from(self) : dup
+              result = Marshal.dump(test_result)
             end
 
             write.puts [result].pack("m")
@@ -53,22 +56,23 @@ module ActiveSupport
           write.close
           result = read.read
           Process.wait2(pid)
-          return result.unpack("m")[0]
+          result.unpack1("m")
         end
       end
 
       module Subprocess
         ORIG_ARGV = ARGV.dup unless defined?(ORIG_ARGV)
 
-        # Crazy H4X to get this working in windows / jruby with
+        # Complicated H4X to get this working in windows / jruby with
         # no forking.
         def run_in_isolation(&blk)
           require "tempfile"
 
           if ENV["ISOLATION_TEST"]
             yield
+            test_result = defined?(Minitest::Result) ? Minitest::Result.from(self) : dup
             File.open(ENV["ISOLATION_OUTPUT"], "w") do |file|
-              file.puts [Marshal.dump(dup)].pack("m")
+              file.puts [Marshal.dump(test_result)].pack("m")
             end
             exit!
           else
@@ -94,7 +98,7 @@ module ActiveSupport
                 nil
               end
 
-              return tmpfile.read.unpack("m")[0]
+              return tmpfile.read.unpack1("m")
             end
           end
         end

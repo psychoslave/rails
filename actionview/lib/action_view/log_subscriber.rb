@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "active_support/log_subscriber"
 
 module ActionView
@@ -14,35 +16,42 @@ module ActionView
 
     def render_template(event)
       info do
-        message = "  Rendered #{from_rails_root(event.payload[:identifier])}"
+        message = +"  Rendered #{from_rails_root(event.payload[:identifier])}"
         message << " within #{from_rails_root(event.payload[:layout])}" if event.payload[:layout]
-        message << " (#{event.duration.round(1)}ms)"
+        message << " (Duration: #{event.duration.round(1)}ms | Allocations: #{event.allocations})"
       end
     end
 
     def render_partial(event)
-      info do
-        message = "  Rendered #{from_rails_root(event.payload[:identifier])}"
+      debug do
+        message = +"  Rendered #{from_rails_root(event.payload[:identifier])}"
         message << " within #{from_rails_root(event.payload[:layout])}" if event.payload[:layout]
-        message << " (#{event.duration.round(1)}ms)"
-        message << " #{cache_message(event.payload)}" if event.payload.key?(:cache_hit)
+        message << " (Duration: #{event.duration.round(1)}ms | Allocations: #{event.allocations})"
+        message << " #{cache_message(event.payload)}" unless event.payload[:cache_hit].nil?
         message
+      end
+    end
+
+    def render_layout(event)
+      info do
+        message = +"  Rendered layout #{from_rails_root(event.payload[:identifier])}"
+        message << " (Duration: #{event.duration.round(1)}ms | Allocations: #{event.allocations})"
       end
     end
 
     def render_collection(event)
       identifier = event.payload[:identifier] || "templates"
 
-      info do
-        "  Rendered collection of #{from_rails_root(identifier)}" \
-        " #{render_count(event.payload)} (#{event.duration.round(1)}ms)"
+      debug do
+        message = +"  Rendered collection of #{from_rails_root(identifier)}"
+        message << " within #{from_rails_root(event.payload[:layout])}" if event.payload[:layout]
+        message << " #{render_count(event.payload)} (Duration: #{event.duration.round(1)}ms | Allocations: #{event.allocations})"
+        message
       end
     end
 
     def start(name, id, payload)
-      if name == "render_template.action_view"
-        log_rendering_start(payload)
-      end
+      log_rendering_start(payload, name)
 
       super
     end
@@ -52,7 +61,6 @@ module ActionView
     end
 
   private
-
     EMPTY = ""
     def from_rails_root(string) # :doc:
       string = string.sub(rails_root, EMPTY)
@@ -73,16 +81,26 @@ module ActionView
     end
 
     def cache_message(payload) # :doc:
-      if payload[:cache_hit]
+      case payload[:cache_hit]
+      when :hit
         "[cache hit]"
-      else
+      when :miss
         "[cache miss]"
       end
     end
 
-    def log_rendering_start(payload)
-      info do
-        message = "  Rendering #{from_rails_root(payload[:identifier])}"
+    def log_rendering_start(payload, name)
+      debug do
+        qualifier =
+          if name == "render_template.action_view"
+            ""
+          elsif name == "render_layout.action_view"
+            "layout "
+          end
+
+        return unless qualifier
+
+        message = +"  Rendering #{qualifier}#{from_rails_root(payload[:identifier])}"
         message << " within #{from_rails_root(payload[:layout])}" if payload[:layout]
         message
       end

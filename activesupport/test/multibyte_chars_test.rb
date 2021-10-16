@@ -1,5 +1,7 @@
-require "abstract_unit"
-require "multibyte_test_helpers"
+# frozen_string_literal: true
+
+require_relative "abstract_unit"
+require_relative "multibyte_test_helpers"
 require "active_support/core_ext/string/multibyte"
 
 class MultibyteCharsTest < ActiveSupport::TestCase
@@ -50,8 +52,8 @@ class MultibyteCharsTest < ActiveSupport::TestCase
     assert_equal BYTE_STRING.length, BYTE_STRING.mb_chars.length
   end
 
-  def test_forwarded_method_with_non_string_result_should_be_returned_vertabim
-    str = ""
+  def test_forwarded_method_with_non_string_result_should_be_returned_verbatim
+    str = +""
     str.singleton_class.class_eval { def __method_for_multibyte_testing_with_integer_result; 1; end }
     @chars.wrapped_string.singleton_class.class_eval { def __method_for_multibyte_testing_with_integer_result; 1; end }
 
@@ -59,26 +61,20 @@ class MultibyteCharsTest < ActiveSupport::TestCase
   end
 
   def test_should_concatenate
-    mb_a = "a".mb_chars
-    mb_b = "b".mb_chars
+    mb_a = (+"a").mb_chars
+    mb_b = (+"b").mb_chars
     assert_equal "ab", mb_a + "b"
     assert_equal "ab", "a" + mb_b
     assert_equal "ab", mb_a + mb_b
 
     assert_equal "ab", mb_a << "b"
-    assert_equal "ab", "a" << mb_b
+    assert_equal "ab", (+"a") << mb_b
     assert_equal "abb", mb_a << mb_b
-  end
-
-  def test_consumes_utf8_strings
-    assert @proxy_class.consumes?(UNICODE_STRING)
-    assert @proxy_class.consumes?(ASCII_STRING)
-    assert !@proxy_class.consumes?(BYTE_STRING)
   end
 
   def test_concatenation_should_return_a_proxy_class_instance
     assert_equal ActiveSupport::Multibyte.proxy_class, ("a".mb_chars + "b").class
-    assert_equal ActiveSupport::Multibyte.proxy_class, ("a".mb_chars << "b").class
+    assert_equal ActiveSupport::Multibyte.proxy_class, ((+"a").mb_chars << "b").class
   end
 
   def test_ascii_strings_are_treated_at_utf8_strings
@@ -88,8 +84,8 @@ class MultibyteCharsTest < ActiveSupport::TestCase
   def test_concatenate_should_return_proxy_instance
     assert(("a".mb_chars + "b").kind_of?(@proxy_class))
     assert(("a".mb_chars + "b".mb_chars).kind_of?(@proxy_class))
-    assert(("a".mb_chars << "b").kind_of?(@proxy_class))
-    assert(("a".mb_chars << "b".mb_chars).kind_of?(@proxy_class))
+    assert(((+"a").mb_chars << "b").kind_of?(@proxy_class))
+    assert(((+"a").mb_chars << "b".mb_chars).kind_of?(@proxy_class))
   end
 
   def test_should_return_string_as_json
@@ -115,14 +111,14 @@ class MultibyteCharsUTF8BehaviourTest < ActiveSupport::TestCase
   %w{capitalize downcase lstrip reverse rstrip swapcase upcase}.each do |method|
     class_eval(<<-EOTESTS, __FILE__, __LINE__ + 1)
       def test_#{method}_bang_should_return_self_when_modifying_wrapped_string
-        chars = ' él piDió Un bUen café '
-        assert_equal chars.object_id, chars.send("#{method}!").object_id
+        chars = ' él piDió Un bUen café '.dup
+        assert_equal chars.object_id, chars.public_send("#{method}!").object_id
       end
 
       def test_#{method}_bang_should_change_wrapped_string
-        original = ' él piDió Un bUen café '
+        original = ' él piDió Un bUen café '.dup
         proxy = chars(original.dup)
-        proxy.send("#{method}!")
+        proxy.public_send("#{method}!")
         assert_not_equal original, proxy.to_s
       end
     EOTESTS
@@ -133,7 +129,7 @@ class MultibyteCharsUTF8BehaviourTest < ActiveSupport::TestCase
   end
 
   def test_tidy_bytes_bang_should_change_wrapped_string
-    original = " Un bUen café \x92"
+    original = +" Un bUen café \x92"
     proxy = chars(original.dup)
     proxy.tidy_bytes!
     assert_not_equal original, proxy.to_s
@@ -146,11 +142,11 @@ class MultibyteCharsUTF8BehaviourTest < ActiveSupport::TestCase
   def test_identity
     assert_equal @chars, @chars
     assert @chars.eql?(@chars)
-    assert !@chars.eql?(UNICODE_STRING)
+    assert_not @chars.eql?(UNICODE_STRING)
   end
 
   def test_string_methods_are_chainable
-    assert chars("").insert(0, "").kind_of?(ActiveSupport::Multibyte.proxy_class)
+    assert chars(+"").insert(0, "").kind_of?(ActiveSupport::Multibyte.proxy_class)
     assert chars("").rjust(1).kind_of?(ActiveSupport::Multibyte.proxy_class)
     assert chars("").ljust(1).kind_of?(ActiveSupport::Multibyte.proxy_class)
     assert chars("").center(1).kind_of?(ActiveSupport::Multibyte.proxy_class)
@@ -163,7 +159,6 @@ class MultibyteCharsUTF8BehaviourTest < ActiveSupport::TestCase
     assert chars("").upcase.kind_of?(ActiveSupport::Multibyte.proxy_class)
     assert chars("").downcase.kind_of?(ActiveSupport::Multibyte.proxy_class)
     assert chars("").capitalize.kind_of?(ActiveSupport::Multibyte.proxy_class)
-    assert chars("").normalize.kind_of?(ActiveSupport::Multibyte.proxy_class)
     assert chars("").decompose.kind_of?(ActiveSupport::Multibyte.proxy_class)
     assert chars("").compose.kind_of?(ActiveSupport::Multibyte.proxy_class)
     assert chars("").tidy_bytes.kind_of?(ActiveSupport::Multibyte.proxy_class)
@@ -194,8 +189,14 @@ class MultibyteCharsUTF8BehaviourTest < ActiveSupport::TestCase
     assert_equal 3, (@chars =~ /わ/u)
   end
 
+  def test_match_should_return_boolean_for_regexp_match
+    assert_not @chars.match?(/wrong/u)
+    assert @chars.match?(/こに/u)
+    assert @chars.match?(/ち/u)
+  end
+
   def test_should_use_character_offsets_for_insert_offsets
-    assert_equal "", "".mb_chars.insert(0, "")
+    assert_equal "", (+"").mb_chars.insert(0, "")
     assert_equal "こわにちわ", @chars.insert(1, "わ")
     assert_equal "こわわわにちわ", @chars.insert(2, "わわ")
     assert_equal "わこわわわにちわ", @chars.insert(0, "わ")
@@ -381,10 +382,6 @@ class MultibyteCharsUTF8BehaviourTest < ActiveSupport::TestCase
   def test_reverse_should_work_with_normalized_strings
     str = "bös"
     reversed_str = "söb"
-    assert_equal chars(reversed_str).normalize(:kc), chars(str).normalize(:kc).reverse
-    assert_equal chars(reversed_str).normalize(:c), chars(str).normalize(:c).reverse
-    assert_equal chars(reversed_str).normalize(:d), chars(str).normalize(:d).reverse
-    assert_equal chars(reversed_str).normalize(:kd), chars(str).normalize(:kd).reverse
     assert_equal chars(reversed_str).decompose, chars(str).decompose.reverse
     assert_equal chars(reversed_str).compose, chars(str).compose.reverse
   end
@@ -418,13 +415,13 @@ class MultibyteCharsUTF8BehaviourTest < ActiveSupport::TestCase
   end
 
   def test_slice_bang_removes_the_slice_from_the_receiver
-    chars = "úüù".mb_chars
+    chars = (+"úüù").mb_chars
     chars.slice!(0, 2)
     assert_equal "ù", chars
   end
 
   def test_slice_bang_returns_nil_and_does_not_modify_receiver_if_out_of_bounds
-    string = "úüù"
+    string = +"úüù"
     chars = string.mb_chars
     assert_nil chars.slice!(4, 5)
     assert_equal "úüù", chars
@@ -467,15 +464,15 @@ class MultibyteCharsUTF8BehaviourTest < ActiveSupport::TestCase
   end
 
   def test_respond_to_knows_which_methods_the_proxy_responds_to
-    assert "".mb_chars.respond_to?(:slice) # Defined on Chars
-    assert "".mb_chars.respond_to?(:capitalize!) # Defined on Chars
-    assert "".mb_chars.respond_to?(:gsub) # Defined on String
-    assert !"".mb_chars.respond_to?(:undefined_method) # Not defined
+    assert_respond_to "".mb_chars, :slice # Defined on Chars
+    assert_respond_to "".mb_chars, :capitalize! # Defined on Chars
+    assert_respond_to "".mb_chars, :gsub # Defined on String
+    assert_not_respond_to "".mb_chars, :undefined_method # Not defined
   end
 
   def test_method_works_for_proxyed_methods
     assert_equal "ll", "hello".mb_chars.method(:slice).call(2..3) # Defined on Chars
-    chars = "hello".mb_chars
+    chars = +"hello".mb_chars
     assert_equal "Hello", chars.method(:capitalize!).call # Defined on Chars
     assert_equal "Hello", chars
     assert_equal "jello", "hello".mb_chars.method(:gsub).call(/h/, "j") # Defined on String
@@ -483,7 +480,7 @@ class MultibyteCharsUTF8BehaviourTest < ActiveSupport::TestCase
   end
 
   def test_acts_like_string
-    assert "Bambi".mb_chars.acts_like_string?
+    assert_predicate "Bambi".mb_chars, :acts_like_string?
   end
 end
 
@@ -563,47 +560,11 @@ class MultibyteCharsExtrasTest < ActiveSupport::TestCase
     end
   end
 
-  def test_composition_exclusion_is_set_up_properly
-    # Normalization of DEVANAGARI LETTER QA breaks when composition exclusion isn't used correctly
-    qa = [0x915, 0x93c].pack("U*")
-    assert_equal qa, chars(qa).normalize(:c)
-  end
-
-  # Test for the Public Review Issue #29, bad explanation of composition might lead to a
-  # bad implementation: http://www.unicode.org/review/pr-29.html
-  def test_normalization_C_pri_29
-    [
-      [0x0B47, 0x0300, 0x0B3E],
-      [0x1100, 0x0300, 0x1161]
-    ].map { |c| c.pack("U*") }.each do |c|
-      assert_equal_codepoints c, chars(c).normalize(:c)
-    end
-  end
-
   def test_normalization_shouldnt_strip_null_bytes
     null_byte_str = "Test\0test"
 
-    assert_equal null_byte_str, chars(null_byte_str).normalize(:kc)
-    assert_equal null_byte_str, chars(null_byte_str).normalize(:c)
-    assert_equal null_byte_str, chars(null_byte_str).normalize(:d)
-    assert_equal null_byte_str, chars(null_byte_str).normalize(:kd)
     assert_equal null_byte_str, chars(null_byte_str).decompose
     assert_equal null_byte_str, chars(null_byte_str).compose
-  end
-
-  def test_simple_normalization
-    comp_str = [
-      44,  # LATIN CAPITAL LETTER D
-      307, # COMBINING DOT ABOVE
-      328, # COMBINING OGONEK
-      323 # COMBINING DOT BELOW
-    ].pack("U*")
-
-    assert_equal_codepoints "", chars("").normalize
-    assert_equal_codepoints [44, 105, 106, 328, 323].pack("U*"), chars(comp_str).normalize(:kc).to_s
-    assert_equal_codepoints [44, 307, 328, 323].pack("U*"), chars(comp_str).normalize(:c).to_s
-    assert_equal_codepoints [44, 307, 110, 780, 78, 769].pack("U*"), chars(comp_str).normalize(:d).to_s
-    assert_equal_codepoints [44, 105, 106, 110, 780, 78, 769].pack("U*"), chars(comp_str).normalize(:kd).to_s
   end
 
   def test_should_compute_grapheme_length
@@ -664,7 +625,6 @@ class MultibyteCharsExtrasTest < ActiveSupport::TestCase
   end
 
   def test_tidy_bytes_should_tidy_bytes
-
     single_byte_cases = {
       "\x21" => "!",   # Valid ASCII byte, low
       "\x41" => "A",   # Valid ASCII byte, mid
@@ -719,7 +679,6 @@ class MultibyteCharsExtrasTest < ActiveSupport::TestCase
   end
 
   private
-
     def string_from_classes(classes)
       # Characters from the character classes as described in UAX #29
       character_from_class = {
@@ -730,22 +689,4 @@ class MultibyteCharsExtrasTest < ActiveSupport::TestCase
         character_from_class[k.intern]
       end.pack("U*")
     end
-end
-
-class MultibyteInternalsTest < ActiveSupport::TestCase
-  include MultibyteTestHelpers
-
-  test "Chars translates a character offset to a byte offset" do
-    example = chars("Puisque c'était son erreur, il m'a aidé")
-    [
-      [0, 0],
-      [3, 3],
-      [12, 11],
-      [14, 13],
-      [41, 39]
-    ].each do |byte_offset, character_offset|
-      assert_equal character_offset, example.send(:translate_offset, byte_offset),
-        "Expected byte offset #{byte_offset} to translate to #{character_offset}"
-    end
-  end
 end

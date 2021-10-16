@@ -1,10 +1,13 @@
+# frozen_string_literal: true
+
 require "abstract_unit"
 require "controller/fake_controllers"
 require "active_support/json/decoding"
 require "rails/engine"
 
 class TestCaseTest < ActionController::TestCase
-  def self.fixture_path; end;
+  def self.fixture_path; end
+  self.file_fixture_path = File.expand_path("../fixtures/multipart", __dir__)
 
   class TestController < ActionController::Base
     def no_op
@@ -122,7 +125,7 @@ XML
     end
 
     def test_send_file
-      send_file(File.expand_path(__FILE__))
+      send_file(__FILE__)
     end
 
     def redirect_to_same_controller
@@ -134,7 +137,7 @@ XML
     end
 
     def create
-      head :created, location: "created resource"
+      head :created, location: "/resource"
     end
 
     def render_cookie
@@ -154,12 +157,15 @@ XML
       render html: '<body class="foo"></body>'.html_safe
     end
 
+    def render_json
+      render json: request.raw_post
+    end
+
     def boom
       raise "boom!"
     end
 
     private
-
       def generate_url(opts)
         url_for(opts.merge(action: "test_uri"))
       end
@@ -219,6 +225,26 @@ XML
     post :render_raw_post, params: params.dup
 
     assert_equal params.to_query, @response.body
+  end
+
+  def test_params_round_trip
+    params = { "foo" => { "contents" => [{ "name" => "gorby", "id" => "123" }, { "name" => "puff", "d" => "true" }] } }
+    post :test_params, params: params.dup
+
+    controller_info = { "controller" => "test_case_test/test", "action" => "test_params" }
+    assert_equal params.merge(controller_info), JSON.parse(@response.body)
+  end
+
+  def test_handle_to_params
+    klass = Class.new do
+      def to_param
+        "bar"
+      end
+    end
+
+    post :test_params, params: { foo: klass.new }
+
+    assert_equal JSON.parse(@response.body)["foo"], "bar"
   end
 
   def test_body_stream
@@ -378,7 +404,13 @@ XML
     process :test_xml_output, params: { response_as: "text/html" }
 
     # <area> auto-closes, so the <p> becomes a sibling
-    assert_select "root > area + p"
+    if defined?(JRUBY_VERSION)
+      # https://github.com/sparklemotion/nokogiri/issues/1653
+      # HTML parser "fixes" "broken" markup in slightly different ways
+      assert_select "root > map > area + p"
+    else
+      assert_select "root > area + p"
+    end
   end
 
   def test_should_not_impose_childless_html_tags_in_xml
@@ -390,9 +422,9 @@ XML
 
   def test_assert_generates
     assert_generates "controller/action/5", controller: "controller", action: "action", id: "5"
-    assert_generates "controller/action/7", { id: "7" }, controller: "controller", action: "action"
-    assert_generates "controller/action/5", { controller: "controller", action: "action", id: "5", name: "bob" }, {}, name: "bob"
-    assert_generates "controller/action/7", { id: "7", name: "bob" }, { controller: "controller", action: "action" }, name: "bob"
+    assert_generates "controller/action/7", { id: "7" }, { controller: "controller", action: "action" }
+    assert_generates "controller/action/5", { controller: "controller", action: "action", id: "5", name: "bob" }, {}, { name: "bob" }
+    assert_generates "controller/action/7", { id: "7", name: "bob" }, { controller: "controller", action: "action" }, { name: "bob" }
     assert_generates "controller/action/7", { id: "7" }, { controller: "controller", action: "action", name: "bob" }, {}
   end
 
@@ -403,7 +435,7 @@ XML
   def test_assert_routing_with_method
     with_routing do |set|
       set.draw { resources(:content) }
-      assert_routing({ method: "post", path: "content" }, controller: "content", action: "create")
+      assert_routing({ method: "post", path: "content" }, { controller: "content", action: "create" })
     end
   end
 
@@ -440,6 +472,18 @@ XML
       {
         "controller" => "test_case_test/test", "action" => "test_params",
         "page" => { "name" => "Page name", "month" => "4", "year" => "2004", "day" => "6" }
+      },
+      parsed_params
+    )
+  end
+
+  def test_nil_params
+    get :test_params, params: nil
+    parsed_params = JSON.parse(@response.body)
+    assert_equal(
+      {
+        "action" => "test_params",
+        "controller" => "test_case_test/test"
       },
       parsed_params
     )
@@ -513,7 +557,7 @@ XML
   def test_params_passing_with_frozen_values
     assert_nothing_raised do
       get :test_params, params: {
-        frozen: "icy".freeze, frozens: ["icy".freeze].freeze, deepfreeze: { frozen: "icy".freeze }.freeze
+        frozen: -"icy", frozens: [-"icy"].freeze, deepfreeze: { frozen: -"icy" }.freeze
       }
     end
     parsed_params = ::JSON.parse(@response.body)
@@ -552,14 +596,26 @@ XML
     post :render_body, params: { bool_value: true, str_value: "string", num_value: 2 }, as: :json
 
     assert_equal "application/json", @request.headers["CONTENT_TYPE"]
-    assert_equal true, @request.request_parameters[:bool_value]
-    assert_equal "string", @request.request_parameters[:str_value]
-    assert_equal 2, @request.request_parameters[:num_value]
+    assert_equal true, @request.request_parameters["bool_value"]
+    assert_equal "string", @request.request_parameters["str_value"]
+    assert_equal 2, @request.request_parameters["num_value"]
   end
 
   def test_using_as_json_sets_format_json
     post :render_body, params: { bool_value: true, str_value: "string", num_value: 2 }, as: :json
     assert_equal "json", @request.format
+  end
+
+  def test_using_as_json_with_empty_params
+    post :test_params, params: { foo: { bar: [] } }, as: :json
+
+    assert_equal({ "bar" => [] }, JSON.load(response.body)["foo"])
+  end
+
+  def test_using_as_json_with_path_parameters
+    post :test_params, params: { id: "12345" }, as: :json
+
+    assert_equal("12345", @request.path_parameters[:id])
   end
 
   def test_mutating_content_type_headers_for_plain_text_files_sets_the_header
@@ -668,7 +724,7 @@ XML
     assert_equal "bar", @request.params[:foo]
 
     post :no_op
-    assert @request.params[:foo].blank?
+    assert_predicate @request.params[:foo], :blank?
   end
 
   def test_filtered_parameters_reset_between_requests
@@ -677,6 +733,27 @@ XML
 
     get :no_op, params: { foo: "baz" }
     assert_equal "baz", @request.filtered_parameters[:foo]
+  end
+
+  def test_raw_post_reset_between_post_requests
+    post :no_op, params: { foo: "bar" }
+    assert_equal "foo=bar", @request.raw_post
+
+    post :no_op, params: { foo: "baz" }
+    assert_equal "foo=baz", @request.raw_post
+  end
+
+  def test_content_length_reset_after_post_request
+    post :no_op, params: { foo: "bar" }
+    assert_not_equal 0, @request.content_length
+
+    get :no_op
+    assert_equal 0, @request.content_length
+  end
+
+  def test_path_is_kept_after_the_request
+    get :test_params, params: { id: "foo" }
+    assert_equal "/test_case_test/test/test_params/foo", @request.path
   end
 
   def test_path_params_reset_between_request
@@ -728,23 +805,17 @@ XML
     assert_equal "text/html", @response.body
   end
 
-  def test_request_path_info_and_format_reset
-    get :test_format, format: "json"
-    assert_equal "application/json", @response.body
-
-    get :test_uri, format: "json"
-    assert_equal "/test_case_test/test/test_uri.json", @response.body
-
-    get :test_format
-    assert_equal "text/html", @response.body
-
-    get :test_uri
-    assert_equal "/test_case_test/test/test_uri", @response.body
-  end
-
   def test_request_format_kwarg_overrides_params
     get :test_format, format: "json", params: { format: "html" }
     assert_equal "application/json", @response.body
+  end
+
+  def test_request_format_kwarg_doesnt_mutate_params
+    params = { foo: "bar" }.freeze
+
+    assert_nothing_raised do
+      get :test_format, format: "json", params: params
+    end
   end
 
   def test_should_have_knowledge_of_client_side_cookie_state_even_if_they_are_not_set
@@ -789,7 +860,7 @@ XML
     end
   end
 
-  FILES_DIR = File.dirname(__FILE__) + "/../fixtures/multipart"
+  FILES_DIR = File.expand_path("../fixtures/multipart", __dir__)
 
   READ_BINARY = "rb:binary"
   READ_PLAIN = "r:binary"
@@ -810,13 +881,16 @@ XML
     new_content_type = "new content_type"
     file.content_type = new_content_type
     assert_equal new_content_type, file.content_type
-
   end
 
   def test_fixture_path_is_accessed_from_self_instead_of_active_support_test_case
-    TestCaseTest.stub :fixture_path, FILES_DIR do
-      uploaded_file = fixture_file_upload("/ruby_on_rails.jpg", "image/png")
-      assert_equal File.open("#{FILES_DIR}/ruby_on_rails.jpg", READ_PLAIN).read, uploaded_file.read
+    TestCaseTest.stub :fixture_path, File.expand_path("../fixtures", __dir__) do
+      expected = "`fixture_file_upload(\"multipart/ruby_on_rails.jpg\")` to `fixture_file_upload(\"ruby_on_rails.jpg\")`"
+
+      assert_deprecated(expected) do
+        uploaded_file = fixture_file_upload("multipart/ruby_on_rails.jpg", "image/png")
+        assert_equal File.open("#{FILES_DIR}/ruby_on_rails.jpg", READ_PLAIN).read, uploaded_file.read
+      end
     end
   end
 
@@ -835,7 +909,7 @@ XML
   def test_fixture_file_upload_with_binary
     filename = "ruby_on_rails.jpg"
     path = "#{FILES_DIR}/#{filename}"
-    content_type = "image/jpg"
+    content_type = "image/jpeg"
 
     binary_file_upload = fixture_file_upload(path, content_type, :binary)
     assert_equal File.open(path, READ_BINARY).read, binary_file_upload.read
@@ -845,34 +919,79 @@ XML
   end
 
   def test_fixture_file_upload_should_be_able_access_to_tempfile
-    file = fixture_file_upload(FILES_DIR + "/ruby_on_rails.jpg", "image/jpg")
-    assert file.respond_to?(:tempfile), "expected tempfile should respond on fixture file object, got nothing"
+    file = fixture_file_upload(FILES_DIR + "/ruby_on_rails.jpg", "image/jpeg")
+    assert_respond_to file, :tempfile
   end
 
   def test_fixture_file_upload
     post :test_file_upload,
       params: {
-        file: fixture_file_upload(FILES_DIR + "/ruby_on_rails.jpg", "image/jpg")
+        file: fixture_file_upload(FILES_DIR + "/ruby_on_rails.jpg", "image/jpeg")
       }
     assert_equal "45142", @response.body
   end
 
+  def test_fixture_file_upload_output_deprecation_when_file_fixture_path_is_not_set
+    TestCaseTest.stub :fixture_path, File.expand_path("../fixtures", __dir__) do
+      TestCaseTest.stub :file_fixture_path, nil do
+        assert_deprecated(/In Rails 7.0, the path needs to be relative to `file_fixture_path`/) do
+          fixture_file_upload("multipart/ruby_on_rails.jpg", "image/jpeg")
+        end
+      end
+    end
+  end
+
+  def test_fixture_file_upload_does_not_output_deprecation_when_file_fixture_path_is_set
+    TestCaseTest.stub :fixture_path, File.expand_path("../fixtures", __dir__) do
+      assert_not_deprecated do
+        fixture_file_upload("ruby_on_rails.jpg", "image/jpeg")
+      end
+    end
+  end
+
   def test_fixture_file_upload_relative_to_fixture_path
-    TestCaseTest.stub :fixture_path, FILES_DIR do
-      uploaded_file = fixture_file_upload("ruby_on_rails.jpg", "image/jpg")
-      assert_equal File.open("#{FILES_DIR}/ruby_on_rails.jpg", READ_PLAIN).read, uploaded_file.read
+    TestCaseTest.stub :fixture_path, File.expand_path("../fixtures", __dir__) do
+      expected = "`fixture_file_upload(\"multipart/ruby_on_rails.jpg\")` to `fixture_file_upload(\"ruby_on_rails.jpg\")`"
+
+      assert_deprecated(expected) do
+        uploaded_file = fixture_file_upload("multipart/ruby_on_rails.jpg", "image/jpeg")
+        assert_equal File.open("#{FILES_DIR}/ruby_on_rails.jpg", READ_PLAIN).read, uploaded_file.read
+      end
+    end
+  end
+
+  def test_fixture_file_upload_relative_to_fixture_path_with_relative_file_fixture_path
+    TestCaseTest.stub :fixture_path, File.expand_path("../fixtures", __dir__) do
+      TestCaseTest.stub :file_fixture_path, "test/fixtures/multipart" do
+        expected = "`fixture_file_upload(\"multipart/ruby_on_rails.jpg\")` to `fixture_file_upload(\"ruby_on_rails.jpg\")`"
+
+        assert_deprecated(expected) do
+          uploaded_file = fixture_file_upload("multipart/ruby_on_rails.jpg", "image/jpg")
+          assert_equal File.open("#{FILES_DIR}/ruby_on_rails.jpg", READ_PLAIN).read, uploaded_file.read
+        end
+      end
+    end
+  end
+
+  def test_fixture_file_upload_fixture_path_same_as_file_fixture_path
+    TestCaseTest.stub :fixture_path, File.expand_path("../fixtures/multipart", __dir__) do
+      TestCaseTest.stub :file_fixture_path, File.expand_path("../fixtures/multipart", __dir__) do
+        assert_not_deprecated do
+          fixture_file_upload("ruby_on_rails.jpg", "image/jpg")
+        end
+      end
     end
   end
 
   def test_fixture_file_upload_ignores_fixture_path_given_full_path
-    TestCaseTest.stub :fixture_path, File.dirname(__FILE__) do
-      uploaded_file = fixture_file_upload("#{FILES_DIR}/ruby_on_rails.jpg", "image/jpg")
+    TestCaseTest.stub :fixture_path, __dir__ do
+      uploaded_file = fixture_file_upload("#{FILES_DIR}/ruby_on_rails.jpg", "image/jpeg")
       assert_equal File.open("#{FILES_DIR}/ruby_on_rails.jpg", READ_PLAIN).read, uploaded_file.read
     end
   end
 
   def test_fixture_file_upload_ignores_nil_fixture_path
-    uploaded_file = fixture_file_upload("#{FILES_DIR}/ruby_on_rails.jpg", "image/jpg")
+    uploaded_file = fixture_file_upload("#{FILES_DIR}/ruby_on_rails.jpg", "image/jpeg")
     assert_equal File.open("#{FILES_DIR}/ruby_on_rails.jpg", READ_PLAIN).read, uploaded_file.read
   end
 
@@ -880,7 +999,7 @@ XML
     filename = "ruby_on_rails.jpg"
     path = "#{FILES_DIR}/#{filename}"
     post :test_file_upload, params: {
-      file: Rack::Test::UploadedFile.new(path, "image/jpg", true)
+      file: Rack::Test::UploadedFile.new(path, "image/jpeg", true)
     }
     assert_equal "45142", @response.body
   end
@@ -893,13 +1012,13 @@ XML
     get :create
     assert_response :created
 
-    # Redirect url doesn't care that it wasn't a :redirect response.
-    assert_equal "created resource", @response.redirect_url
+    # Redirect URL doesn't care that it wasn't a :redirect response.
+    assert_equal "/resource", @response.redirect_url
     assert_equal @response.redirect_url, redirect_to_url
 
     # Must be a :redirect response.
     assert_raise(ActiveSupport::TestCase::Assertion) do
-      assert_redirected_to "created resource"
+      assert_redirected_to "/resource"
     end
   end
 
@@ -921,6 +1040,16 @@ XML
       params: { q: "test2" }
 
     assert_equal "q=test2", @response.body
+  end
+
+  def test_parsed_body_without_as_option
+    post :render_json, body: { foo: "heyo" }
+    assert_equal({ "foo" => "heyo" }, response.parsed_body)
+  end
+
+  def test_parsed_body_with_as_option
+    post :render_json, body: { foo: "heyo" }.to_json, as: :json
+    assert_equal({ "foo" => "heyo" }, response.parsed_body)
   end
 end
 
@@ -1037,7 +1166,7 @@ class InferringClassNameTest < ActionController::TestCase
     end
 end
 
-class CrazyNameTest < ActionController::TestCase
+class ManuallySetNameTest < ActionController::TestCase
   tests ContentController
 
   def test_controller_class_can_be_set_manually_not_just_inferred
@@ -1045,7 +1174,7 @@ class CrazyNameTest < ActionController::TestCase
   end
 end
 
-class CrazySymbolNameTest < ActionController::TestCase
+class ManuallySetSymbolNameTest < ActionController::TestCase
   tests :content
 
   def test_set_controller_class_using_symbol
@@ -1053,7 +1182,7 @@ class CrazySymbolNameTest < ActionController::TestCase
   end
 end
 
-class CrazyStringNameTest < ActionController::TestCase
+class ManuallySetStringNameTest < ActionController::TestCase
   tests "content"
 
   def test_set_controller_class_using_string

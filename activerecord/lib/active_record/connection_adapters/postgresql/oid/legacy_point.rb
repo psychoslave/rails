@@ -1,9 +1,11 @@
+# frozen_string_literal: true
+
 module ActiveRecord
   module ConnectionAdapters
     module PostgreSQL
       module OID # :nodoc:
         class LegacyPoint < Type::Value # :nodoc:
-          include Type::Helpers::Mutable
+          include ActiveModel::Type::Helpers::Mutable
 
           def type
             :point
@@ -12,7 +14,7 @@ module ActiveRecord
           def cast(value)
             case value
             when ::String
-              if value[0] == "(" && value[-1] == ")"
+              if value.start_with?("(") && value.end_with?(")")
                 value = value[1...-1]
               end
               cast(value.split(","))
@@ -32,9 +34,8 @@ module ActiveRecord
           end
 
           private
-
             def number_for_point(number)
-              number.to_s.gsub(/\.0$/, "")
+              number.to_s.delete_suffix(".0")
             end
         end
       end

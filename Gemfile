@@ -1,27 +1,26 @@
+# frozen_string_literal: true
+
 source "https://rubygems.org"
 
-git_source(:github) do |repo_name|
-  repo_name = "#{repo_name}/#{repo_name}" unless repo_name.include?("/")
-  "https://github.com/#{repo_name}.git"
-end
+git_source(:github) { |repo| "https://github.com/#{repo}.git" }
 
 gemspec
-
-gem "arel", github: "rails/arel"
 
 # We need a newish Rake since Active Job sets its test tasks' descriptions.
 gem "rake", ">= 11.1"
 
-# This needs to be with require false to ensure correct loading order, as it has to
-# be loaded after loading the test library.
-gem "mocha", "~> 0.14", require: false
+gem "sprockets-rails", ">= 2.0.0"
+gem "propshaft", ">= 0.1.7"
+gem "capybara", ">= 3.26"
+gem "selenium-webdriver", ">= 4.0.0.alpha7"
 
 gem "rack-cache", "~> 1.2"
-gem "jquery-rails"
-gem "coffee-rails"
-gem "sass-rails"
-gem "turbolinks", "~> 5"
-
+gem "stimulus-rails"
+gem "turbo-rails"
+gem "jsbundling-rails"
+gem "cssbundling-rails"
+gem "importmap-rails"
+gem "tailwindcss-rails"
 # require: false so bcrypt is loaded only when has_secure_password is used.
 # This is to avoid Active Model (and by extension the entire framework)
 # being dependent on a binary library.
@@ -29,46 +28,50 @@ gem "bcrypt", "~> 3.1.11", require: false
 
 # This needs to be with require false to avoid it being automatically loaded by
 # sprockets.
-gem "uglifier", ">= 1.3.0", require: false
-
-# FIXME: Remove this fork after https://github.com/nex3/rb-inotify/pull/49 is fixed.
-gem "rb-inotify", github: "matthewd/rb-inotify", branch: "close-handling", require: false
+gem "terser", ">= 1.1.4", require: false
 
 # Explicitly avoid 1.x that doesn't support Ruby 2.4+
 gem "json", ">= 2.0.0"
 
-gem "rubocop", ">= 0.47", require: false
-
-group :doc do
-  gem "sdoc", "1.0.0.rc1"
-  gem "redcarpet", "~> 3.2.3", platforms: :ruby
-  gem "w3c_validators"
-  gem "kindlerb", "~> 1.2.0"
+group :rubocop do
+  gem "rubocop", ">= 0.90", require: false
+  gem "rubocop-minitest", require: false
+  gem "rubocop-packaging", require: false
+  gem "rubocop-performance", require: false
+  gem "rubocop-rails", require: false
 end
 
-# Active Support.
-gem "dalli", ">= 2.2.1"
-gem "listen", ">= 3.0.5", "< 3.2", require: false
+group :doc do
+  gem "sdoc", ">= 2.2.0"
+  gem "redcarpet", "~> 3.2.3", platforms: :ruby
+  gem "w3c_validators", "~> 1.3.6"
+  gem "kindlerb", "~> 1.2.0"
+  gem "rouge"
+end
+
+# Active Support
+gem "dalli", ">= 3.0.1"
+gem "listen", "~> 3.3", require: false
 gem "libxml-ruby", platforms: :ruby
+gem "connection_pool", require: false
+gem "rexml", require: false
 
-# Action View. For testing Erubis handler deprecation.
-gem "erubis", "~> 2.7.0", require: false
+# for railties
+gem "bootsnap", ">= 1.4.4", require: false
+gem "webrick", require: false
 
-# Active Job.
+# Active Job
 group :job do
-  gem "resque", github: "resque/resque", require: false
+  gem "resque", require: false
   gem "resque-scheduler", require: false
   gem "sidekiq", require: false
   gem "sucker_punch", require: false
-  gem "delayed_job", require: false, github: "collectiveidea/delayed_job"
-  gem "queue_classic", github: "QueueClassic/queue_classic", branch: "master", require: false, platforms: :ruby
+  gem "delayed_job", require: false
+  gem "queue_classic", github: "jhawthorn/queue_classic", branch: "fix-connection-pg-14", require: false, platforms: :ruby
   gem "sneakers", require: false
   gem "que", require: false
   gem "backburner", require: false
-  #TODO: add qu after it support Rails 5.1
-  # gem 'qu-rails', github: "bkeepers/qu", branch: "master", require: false
-  gem "qu-redis", require: false
-  gem "delayed_job_active_record", require: false, github: "collectiveidea/delayed_job_active_record"
+  gem "delayed_job_active_record", require: false
   gem "sequel", require: false
 end
 
@@ -76,44 +79,66 @@ end
 group :cable do
   gem "puma", require: false
 
-  gem "em-hiredis", require: false
   gem "hiredis", require: false
-  gem "redis", require: false
+  gem "redis", "~> 4.0", require: false
+
+  gem "redis-namespace"
 
   gem "websocket-client-simple", github: "matthewd/websocket-client-simple", branch: "close-race", require: false
+end
 
+# Active Storage
+group :storage do
+  gem "aws-sdk-s3", require: false
+  gem "google-cloud-storage", "~> 1.11", require: false
+  gem "azure-storage-blob", "~> 2.0", require: false
+
+  gem "image_processing", "~> 1.2"
+end
+
+# Action Mailbox
+gem "aws-sdk-sns", require: false
+gem "webmock"
+
+group :ujs do
+  gem "webdrivers"
+end
+
+# Action View
+group :view do
   gem "blade", require: false, platforms: [:ruby]
-  gem "blade-sauce_labs_plugin", require: false, platforms: [:ruby]
+  gem "sprockets-export", require: false
 end
 
 # Add your own local bundler stuff.
-local_gemfile = File.dirname(__FILE__) + "/.Gemfile"
+local_gemfile = File.expand_path(".Gemfile", __dir__)
 instance_eval File.read local_gemfile if File.exist? local_gemfile
 
 group :test do
-  # FIX: Our test suite isn't ready to run in random order yet.
-  gem "minitest", "< 5.3.4"
+  gem "minitest-bisect"
+  gem "minitest-ci", require: false
+  gem "minitest-retry"
 
   platforms :mri do
     gem "stackprof"
-    gem "byebug"
+    gem "debug", ">= 1.1.0", require: false
   end
 
   gem "benchmark-ips"
 end
 
 platforms :ruby, :mswin, :mswin64, :mingw, :x64_mingw do
-  gem "nokogiri", ">= 1.6.8"
+  gem "nokogiri", ">= 1.8.1", "!= 1.11.0"
 
   # Needed for compiling the ActionDispatch::Journey parser.
   gem "racc", ">=1.4.6", require: false
 
   # Active Record.
-  gem "sqlite3", "~> 1.3.6"
+  gem "sqlite3", "~> 1.4"
 
   group :db do
-    gem "pg", ">= 0.18.0"
-    gem "mysql2", ">= 0.4.4"
+    gem "pg", "~> 1.1"
+    gem "mysql2", "~> 0.5", github: "brianmario/mysql2"
   end
 end
 
@@ -136,7 +161,7 @@ end
 platforms :rbx do
   # The rubysl-yaml gem doesn't ship with Psych by default as it needs
   # libyaml that isn't always available.
-  gem "psych", "~> 2.0"
+  gem "psych", "~> 3.0"
 end
 
 # Gems that are necessary for Active Record tests with Oracle.
@@ -147,7 +172,20 @@ if ENV["ORACLE_ENHANCED"]
   gem "activerecord-oracle_enhanced-adapter", github: "rsim/oracle-enhanced", branch: "master"
 end
 
-# A gem necessary for Active Record tests with IBM DB.
-gem "ibm_db" if ENV["IBM_DB"]
 gem "tzinfo-data", platforms: [:mingw, :mswin, :x64_mingw, :jruby]
 gem "wdm", ">= 0.1.0", platforms: [:mingw, :mswin, :x64_mingw, :mswin64]
+
+if RUBY_VERSION >= "3.1"
+  # net-smtp, net-imap and net-pop were removed from default gems in Ruby 3.1, but is used by the `mail` gem.
+  # So we need to add them as dependencies until `mail` is fixed: https://github.com/mikel/mail/pull/1439
+  gem "net-smtp", require: false
+  gem "net-imap", require: false
+  gem "net-pop", require: false
+
+  # digest gem, which is one of the default gems has bumped to 3.1.0.pre for ruby 3.1.0dev.
+  gem "digest", "~> 3.1.0.pre", require: false
+
+  # matrix was removed from default gems in Ruby 3.1, but is used by the `capybara` gem.
+  # So we need to add it as a dependency until `capybara` is fixed: https://github.com/teamcapybara/capybara/pull/2468
+  gem "matrix", require: false
+end

@@ -1,9 +1,21 @@
+# frozen_string_literal: true
+
 require "cases/helper"
 require "models/topic"
 require "models/task"
 
 class DateTimeTest < ActiveRecord::TestCase
   include InTimeZone
+
+  def test_default_timezone_validation
+    assert_raises ArgumentError do
+      ActiveRecord.default_timezone = "UTC"
+    end
+
+    # These values should not raise errors
+    ActiveRecord.default_timezone = :local
+    ActiveRecord.default_timezone = :utc
+  end
 
   def test_saves_both_date_and_time
     with_env_tz "America/New_York" do
@@ -52,10 +64,23 @@ class DateTimeTest < ActiveRecord::TestCase
   end
 
   def test_assign_in_local_timezone
-    now = DateTime.now
+    now = DateTime.civil(2017, 3, 1, 12, 0, 0)
     with_timezone_config default: :local do
       task = Task.new starting: now
       assert_equal now, task.starting
     end
+  end
+
+  def test_date_time_with_string_value_with_subsecond_precision
+    skip unless supports_datetime_with_precision?
+    string_value = "2017-07-04 14:19:00.5"
+    topic = Topic.create(written_on: string_value)
+    assert_equal topic, Topic.find_by(written_on: string_value)
+  end
+
+  def test_date_time_with_string_value_with_non_iso_format
+    string_value = "04/07/2017 2:19pm"
+    topic = Topic.create(written_on: string_value)
+    assert_equal topic, Topic.find_by(written_on: string_value)
   end
 end

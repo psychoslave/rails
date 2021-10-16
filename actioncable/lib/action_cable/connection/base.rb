@@ -1,4 +1,7 @@
+# frozen_string_literal: true
+
 require "action_dispatch"
+require "active_support/rescuable"
 
 module ActionCable
   module Connection
@@ -24,7 +27,7 @@ module ActionCable
     #
     #       private
     #         def find_verified_user
-    #           User.find_by_identity(cookies.signed[:identity_id]) ||
+    #           User.find_by_identity(cookies.encrypted[:identity_id]) ||
     #             reject_unauthorized_connection
     #         end
     #     end
@@ -44,6 +47,7 @@ module ActionCable
       include Identification
       include InternalChannel
       include Authorization
+      include ActiveSupport::Rescuable
 
       attr_reader :server, :env, :subscriptions, :logger, :worker_pool, :protocol
       delegate :event_loop, :pubsub, to: :server
@@ -64,7 +68,7 @@ module ActionCable
 
       # Called by the server when a new WebSocket connection is established. This configures the callbacks intended for overwriting by the user.
       # This method should not be called directly -- instead rely upon on the #connect (and #disconnect) callbacks.
-      def process #:nodoc:
+      def process # :nodoc:
         logger.info started_request_message
 
         if websocket.possible? && allow_request_origin?
@@ -76,11 +80,11 @@ module ActionCable
 
       # Decodes WebSocket messages and dispatches them to subscribed channels.
       # WebSocket message transfer encoding is always JSON.
-      def receive(websocket_message) #:nodoc:
+      def receive(websocket_message) # :nodoc:
         send_async :dispatch_websocket_message, websocket_message
       end
 
-      def dispatch_websocket_message(websocket_message) #:nodoc:
+      def dispatch_websocket_message(websocket_message) # :nodoc:
         if websocket.alive?
           subscriptions.execute_command decode(websocket_message)
         else
@@ -93,7 +97,12 @@ module ActionCable
       end
 
       # Close the WebSocket connection.
-      def close
+      def close(reason: nil, reconnect: true)
+        transmit(
+          type: ActionCable::INTERNAL[:message_types][:disconnect],
+          reason: reason,
+          reconnect: reconnect
+        )
         websocket.close
       end
 
@@ -126,20 +135,18 @@ module ActionCable
       end
 
       def on_error(message) # :nodoc:
-        # ignore
+        # log errors to make diagnosing socket errors easier
+        logger.error "WebSocket error occurred: #{message}"
       end
 
       def on_close(reason, code) # :nodoc:
         send_async :handle_close
       end
 
-      # TODO Change this to private once we've dropped Ruby 2.2 support.
-      # Workaround for Ruby 2.2 "private attribute?" warning.
-      protected
+      private
         attr_reader :websocket
         attr_reader :message_buffer
 
-      private
         # The request that initiated the WebSocket connection is available here. This gives access to the environment, cookies, etc.
         def request # :doc:
           @request ||= begin
@@ -170,7 +177,7 @@ module ActionCable
           message_buffer.process!
           server.add_connection(self)
         rescue ActionCable::Connection::Authorization::UnauthorizedError
-          respond_to_invalid_request
+          close(reason: ActionCable::INTERNAL[:disconnect_reasons][:unauthorized], reconnect: false) if websocket.alive?
         end
 
         def handle_close
@@ -211,7 +218,7 @@ module ActionCable
         end
 
         def respond_to_invalid_request
-          close if websocket.alive?
+          close(reason: ActionCable::INTERNAL[:disconnect_reasons][:invalid_request]) if websocket.alive?
 
           logger.error invalid_request_message
           logger.info finished_request_message
@@ -255,3 +262,5 @@ module ActionCable
     end
   end
 end
+
+ActiveSupport.run_load_hooks(:action_cable_connection, ActionCable::Connection::Base)

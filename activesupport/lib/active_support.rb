@@ -1,5 +1,7 @@
+# frozen_string_literal: true
+
 #--
-# Copyright (c) 2005-2017 David Heinemeier Hansson
+# Copyright (c) 2005-2021 David Heinemeier Hansson
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -32,15 +34,20 @@ module ActiveSupport
   extend ActiveSupport::Autoload
 
   autoload :Concern
+  autoload :ActionableError
+  autoload :ConfigurationFile
+  autoload :CurrentAttributes
   autoload :Dependencies
   autoload :DescendantsTracker
   autoload :ExecutionWrapper
   autoload :Executor
   autoload :FileUpdateChecker
   autoload :EventedFileUpdateChecker
+  autoload :ForkTracker
   autoload :LogSubscriber
   autoload :Notifications
   autoload :Reloader
+  autoload :SecureCompareRotator
 
   eager_autoload do
     autoload :BacktraceCleaner
@@ -50,6 +57,7 @@ module ActiveSupport
     autoload :Callbacks
     autoload :Configurable
     autoload :Deprecation
+    autoload :Digest
     autoload :Gzip
     autoload :Inflector
     autoload :JSON
@@ -62,6 +70,7 @@ module ActiveSupport
     autoload :OrderedHash
     autoload :OrderedOptions
     autoload :StringInquirer
+    autoload :EnvironmentInquirer
     autoload :TaggedLogging
     autoload :XmlMini
     autoload :ArrayInquirer
@@ -78,13 +87,14 @@ module ActiveSupport
   end
 
   cattr_accessor :test_order # :nodoc:
+  cattr_accessor :test_parallelization_threshold, default: 50 # :nodoc:
 
-  def self.halt_callback_chains_on_return_false
-    Callbacks.halt_and_display_warning_on_return_false
+  def self.cache_format_version
+    Cache.format_version
   end
 
-  def self.halt_callback_chains_on_return_false=(value)
-    Callbacks.halt_and_display_warning_on_return_false = value
+  def self.cache_format_version=(value)
+    Cache.format_version = value
   end
 
   def self.to_time_preserves_timezone
@@ -93,6 +103,18 @@ module ActiveSupport
 
   def self.to_time_preserves_timezone=(value)
     DateAndTime::Compatibility.preserve_timezone = value
+  end
+
+  def self.utc_to_local_returns_utc_offset_times
+    DateAndTime::Compatibility.utc_to_local_returns_utc_offset_times
+  end
+
+  def self.utc_to_local_returns_utc_offset_times=(value)
+    DateAndTime::Compatibility.utc_to_local_returns_utc_offset_times = value
+  end
+
+  def self.current_attributes_use_thread_variables=(value)
+    CurrentAttributes._use_thread_variables = value
   end
 end
 

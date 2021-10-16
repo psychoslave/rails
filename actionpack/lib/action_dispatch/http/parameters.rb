@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActionDispatch
   module Http
     module Parameters
@@ -13,10 +15,10 @@ module ActionDispatch
       }
 
       # Raised when raw data from the request cannot be parsed by the parser
-      # defined for request's content mime type.
+      # defined for request's content MIME type.
       class ParseError < StandardError
-        def initialize
-          super($!.message)
+        def initialize(message = $!.message)
+          super(message)
         end
       end
 
@@ -30,9 +32,9 @@ module ActionDispatch
       end
 
       module ClassMethods
-        # Configure the parameter parser for a given mime type.
+        # Configure the parameter parser for a given MIME type.
         #
-        # It accepts a hash where the key is the symbol of the mime type
+        # It accepts a hash where the key is the symbol of the MIME type
         # and the value is a proc.
         #
         #     original_parsers = ActionDispatch::Request.parameter_parsers
@@ -55,15 +57,15 @@ module ActionDispatch
                    query_parameters.dup
                  end
         params.merge!(path_parameters)
-        params = set_binary_encoding(params)
         set_header("action_dispatch.request.parameters", params)
         params
       end
       alias :params :parameters
 
-      def path_parameters=(parameters) #:nodoc:
+      def path_parameters=(parameters) # :nodoc:
         delete_header("action_dispatch.request.parameters")
 
+        parameters = Request::Utils.set_binary_encoding(self, parameters, parameters[:controller], parameters[:action])
         # If any of the path parameters has an invalid encoding then
         # raise since it's likely to trigger errors further on.
         Request::Utils.check_param_encoding(parameters)
@@ -82,17 +84,6 @@ module ActionDispatch
       end
 
       private
-
-        def set_binary_encoding(params)
-          action = params[:action]
-          if controller_class.binary_params_for?(action)
-            ActionDispatch::Request::Utils.each_param_value(params) do |param|
-              param.force_encoding ::Encoding::ASCII_8BIT
-            end
-          end
-          params
-        end
-
         def parse_formatted_parameters(parsers)
           return yield if content_length.zero? || content_mime_type.nil?
 
@@ -100,11 +91,21 @@ module ActionDispatch
 
           begin
             strategy.call(raw_post)
-          rescue # JSON or Ruby code block errors
-            my_logger = logger || ActiveSupport::Logger.new($stderr)
-            my_logger.debug "Error occurred while parsing request parameters.\nContents:\n\n#{raw_post}"
+          rescue # JSON or Ruby code block errors.
+            log_parse_error_once
+            raise ParseError, "Error occurred while parsing request parameters"
+          end
+        end
 
-            raise ParseError
+        def log_parse_error_once
+          @parse_error_logged ||= begin
+            parse_logger = logger || ActiveSupport::Logger.new($stderr)
+            parse_logger.debug <<~MSG.chomp
+              Error occurred while parsing request parameters.
+              Contents:
+
+              #{raw_post}
+            MSG
           end
         end
 
@@ -112,9 +113,5 @@ module ActionDispatch
           ActionDispatch::Request.parameter_parsers
         end
     end
-  end
-
-  module ParamsParser
-    ParseError = ActiveSupport::Deprecation::DeprecatedConstantProxy.new("ActionDispatch::ParamsParser::ParseError", "ActionDispatch::Http::Parameters::ParseError")
   end
 end

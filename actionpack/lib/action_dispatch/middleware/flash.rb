@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "active_support/core_ext/hash/keys"
 
 module ActionDispatch
@@ -36,7 +38,7 @@ module ActionDispatch
   #
   # See docs on the FlashHash class for more details about the flash.
   class Flash
-    KEY = "action_dispatch.request.flash_hash".freeze
+    KEY = "action_dispatch.request.flash_hash"
 
     module RequestMethods
       # Access the contents of the flash. Use <tt>flash["notice"]</tt> to
@@ -57,27 +59,25 @@ module ActionDispatch
       end
 
       def commit_flash # :nodoc:
-        session    = self.session || {}
-        flash_hash = self.flash_hash
+        return unless session.enabled?
 
         if flash_hash && (flash_hash.present? || session.key?("flash"))
           session["flash"] = flash_hash.to_session_value
           self.flash = flash_hash.dup
         end
 
-        if (!session.respond_to?(:loaded?) || session.loaded?) && # (reset_session uses {}, which doesn't implement #loaded?)
-            session.key?("flash") && session["flash"].nil?
+        if session.loaded? && session.key?("flash") && session["flash"].nil?
           session.delete("flash")
         end
       end
 
-      def reset_session # :nodoc
+      def reset_session # :nodoc:
         super
         self.flash = nil
       end
     end
 
-    class FlashNow #:nodoc:
+    class FlashNow # :nodoc:
       attr_accessor :flash
 
       def initialize(flash)
@@ -109,7 +109,7 @@ module ActionDispatch
     class FlashHash
       include Enumerable
 
-      def self.from_session_value(value) #:nodoc:
+      def self.from_session_value(value) # :nodoc:
         case value
         when FlashHash # Rails 3.1, 3.2
           flashes = value.instance_variable_get(:@flashes)
@@ -130,13 +130,13 @@ module ActionDispatch
 
       # Builds a hash containing the flashes to keep for the next request.
       # If there are none to keep, returns +nil+.
-      def to_session_value #:nodoc:
+      def to_session_value # :nodoc:
         flashes_to_keep = @flashes.except(*@discard)
         return nil if flashes_to_keep.empty?
         { "discard" => [], "flashes" => flashes_to_keep }
       end
 
-      def initialize(flashes = {}, discard = []) #:nodoc:
+      def initialize(flashes = {}, discard = []) # :nodoc:
         @discard = Set.new(stringify_array(discard))
         @flashes = flashes.stringify_keys
         @now     = nil
@@ -160,7 +160,7 @@ module ActionDispatch
         @flashes[k.to_s]
       end
 
-      def update(h) #:nodoc:
+      def update(h) # :nodoc:
         @discard.subtract stringify_array(h.keys)
         @flashes.update h.stringify_keys
         self
@@ -200,7 +200,7 @@ module ActionDispatch
 
       alias :merge! :update
 
-      def replace(h) #:nodoc:
+      def replace(h) # :nodoc:
         @discard.clear
         @flashes.replace h.stringify_keys
         self
@@ -251,7 +251,7 @@ module ActionDispatch
       # Mark for removal entries that were kept, and delete unkept ones.
       #
       # This method is called automatically by filters, so you generally don't need to care about it.
-      def sweep #:nodoc:
+      def sweep # :nodoc:
         @discard.each { |k| @flashes.delete k }
         @discard.replace @flashes.keys
       end

@@ -1,146 +1,182 @@
-*   Initialize git repo when generating new app, if option `--skip-git`
-    is not provided.
+## Unreleased
 
-    *Dino Maric*
+*   Scaffolds now use date_field, time_field and datetime_field instead of
+    date_select, time_select and datetime_select; thus providing native date/time pickers.
 
-*   Install Byebug gem as default in Windows (mingw and x64_mingw) platform.
+    *Martijn Lafeber*
 
-    *Junichi Ito*
+*   Fix a regression in which autoload paths were initialized too late.
 
-*   Make every Rails command work within engines.
+    *Xavier Noria*
 
-    *Sean Collins*, *Yuji Yaginuma*
+## Rails 7.0.0.alpha2 (September 15, 2021) ##
 
-*   Don't generate HTML/ERB templates for scaffold controller with `--api` flag.
-
-    Fixes #27591.
-
-    *Prathamesh Sonpatki*
-
-*   Make `Rails.env` fall back to `development` when `RAILS_ENV` and `RACK_ENV` is an empty string.
-
-    *Daniel Deng*
-
-*   Remove deprecated `CONTROLLER` environment variable for `routes` task.
+*   Fix activestorage dependency in the npm package.
 
     *Rafael Mendonça França*
 
-*   Remove deprecated tasks: `rails:update`, `rails:template`, `rails:template:copy`,
-    `rails:update:configs` and `rails:update:bin`.
+## Rails 7.0.0.alpha1 (September 15, 2021) ##
 
-    *Rafael Mendonça França*
+*   New and upgraded Rails apps no longer generate `config/initializers/application_controller_renderer.rb`
+    or `config/initializers/cookies_serializer.rb`
 
-*   Remove deprecated file `rails/rack/debugger`.
+    The default value for `cookies_serializer` (`:json`) has been moved to `config.load_defaults("7.0")`.
+    The new framework defaults file can be used to upgrade the serializer.
 
-    *Rafael Mendonça França*
+    *Alex Ghiculescu*
 
-*   Remove deprecated `config.serve_static_files`.
+*   New applications get a dependency on the new `debug` gem, replacing `byebug`.
 
-    *Rafael Mendonça França*
+    *Xavier Noria*
 
-*   Remove deprecated `config.static_cache_control`.
+*   Add SSL support for postgresql in `bin/rails dbconsole`.
 
-    *Rafael Mendonça França*
+    Fixes #43114.
 
-*   The `log:clear` task clear all environments log files by default.
+    *Michael Bayucot*
 
-    *Yuji Yaginuma*
+*   Add support for comments above gem declaration in Rails application templates, e.g. `gem("nokogiri", comment: "For XML")`.
 
-*   Add Webpack support in new apps via the --webpack option, which will delegate to the rails/webpacker gem.
+    *Linas Juškevičius*
 
-    To generate a new app that has Webpack dependencies configured and binstubs for webpack and webpack-watcher:
+*   The setter `config.autoloader=` has been deleted. `zeitwerk` is the only
+    available autoloading mode.
 
-      `rails new myapp --webpack`
+    *Xavier Noria*
 
-    To generate a new app that has Webpack + React configured and an example intalled:
+*   `config.autoload_once_paths` can be configured in the body of the
+    application class defined in `config/application.rb` or in the configuration
+    for environments in `config/environments/*`.
 
-      `rails new myapp --webpack=react`
+    Similarly, engines can configure that collection in the class body of the
+    engine class or in the configuration for environments.
 
-    *DHH*
+    After that, the collection is frozen, and you can autoload from those paths.
+    They are managed by the `Rails.autoloaders.once` autoloader, which does not
+    reload, only autoloads/eager loads.
 
-*   Add Yarn support in new apps with a yarn binstub and vendor/package.json. Skippable via --skip-yarn option.
+    *Xavier Noria*
 
-    *Liceth Ovalles*, *Guillermo Iguaran*, *DHH*
+*   During initialization, you cannot autoload reloadable classes or modules
+    like application models, unless they are wrapped in a `to_prepare` block.
+    For example, from `config/initializers/*`, or in application, engines, or
+    railties initializers.
 
-*   Removed jquery-rails from default stack, instead rails-ujs that is shipped
-    with Action View is included as default UJS adapter.
+    Please check the [autoloading
+    guide](https://guides.rubyonrails.org/v7.0/autoloading_and_reloading_constants.html#autoloading-when-the-application-boots)
+    for details.
 
-    *Guillermo Iguaran*
+    *Xavier Noria*
 
-*   The config file `secrets.yml` is now loaded in with all keys as symbols.
-    This allows secrets files to contain more complex information without all
-    child keys being strings while parent keys are symbols.
+*   While they are allowed to have elements in common, it is no longer required
+    that `config.autoload_once_paths` is a subset of `config.autoload_paths`.
+    The former are managed by the `once` autoloader. The `main` autoloader
+    manages the latter minus the former.
 
-    *Isaac Sloan*
+    *Xavier Noria*
 
-*   Add `:skip_sprockets` to `Rails::PluginBuilder::PASSTHROUGH_OPTIONS`
+*   Show Rake task description if command is run with `-h`.
 
-    *Tsukuru Tanimichi*
+    Adding `-h` (or `--help`) to a Rails command that's a Rake task now outputs
+    the task description instead of the general Rake help.
 
-*   Allow the use of listen's 3.1.x branch
+    *Petrik de Heus*
 
-    *Esteban Santana Santana*
+*   Add missing `plugin new` command to help.
 
-*   Run `Minitest.after_run` hooks when running `rails test`.
+    *Petrik de Heus
 
-    *Michael Grosser*
+*   Fix `config_for` error when there's only a shared root array.
 
-*   Run `before_configuration` callbacks as soon as application constant
-    inherits from `Rails::Application`.
+    *Loïc Delmaire*
 
-    Fixes #19880.
+*   Raise an error in generators if an index type is invalid.
 
-    *Yuji Yaginuma*
+    *Petrik de Heus*
 
-*   A generated app should not include Uglifier with `--skip-javascript` option.
+*   `package.json` now uses a strict version constraint for Rails JavaScript packages on new Rails apps.
 
-    *Ben Pickles*
+    *Zachary Scott*, *Alex Ghiculescu*
 
-*   Set session store to cookie store internally and remove the initializer from
-    the generated app.
+*   Modified scaffold generator template so that running
+    `rails g scaffold Author` no longer generates tests called "creating
+    a Author", "updating a Author", and "destroying a Author".
 
-    *Prathamesh Sonpatki*
+    Fixes #40744.
 
-*   Set the server host using the `HOST` environment variable.
+    *Michael Duchemin*
 
-    *mahnunchik*
+*   Raise an error in generators if a field type is invalid.
 
-*   Add public API to register new folders for `rake notes`:
+    *Petrik de Heus*
 
-        config.annotations.register_directories('spec', 'features')
+*   `bin/rails tmp:clear` deletes also files and directories in `tmp/storage`.
 
-    *John Meehan*
+    *George Claghorn*
 
-*   Display name of the class defining the initializer along with the initializer
-    name in the output of `rails initializers`.
+*   Fix compatibility with `psych >= 4`.
 
-    Before:
-        disable_dependency_loading
+    Starting in Psych 4.0.0 `YAML.load` behaves like `YAML.safe_load`. To preserve compatibility
+    `Rails.application.config_for` now uses `YAML.unsafe_load` if available.
 
-    After:
-        DemoApp::Application.disable_dependency_loading
+    *Jean Boussier*
 
-    *ta1kt0me*
+*   Allow loading nested locales in engines.
 
-*   Do not run `bundle install` when generating a new plugin.
+    *Gannon McGibbon*
 
-    Since bundler 1.12.0, the gemspec is validated so the `bundle install`
-    command will fail just after the gem is created causing confusion to the
-    users. This change was a bug fix to correctly validate gemspecs.
+*   Ensure `Rails.application.config_for` always cast hashes to `ActiveSupport::OrderedOptions`.
 
-    *Rafael Mendonça França*
+    *Jean Boussier*
 
-*   Default `config.assets.quiet = true` in the development environment. Suppress
-    logging of assets requests by default.
+*   Remove `Rack::Runtime` from the default middleware stack and deprecate
+    referencing it in middleware operations without adding it back.
 
-    *Kevin McPhillips*
+    *Hartley McGuire*
 
-*   Ensure `/rails/info` routes match in development for apps with a catch-all globbing route.
+*   Allow adding additional authorized hosts in development via `ENV['RAILS_DEVELOPMENT_HOSTS']`.
 
-    *Nicholas Firth-McCoy*
+    *Josh Abernathy*, *Debbie Milburn*
 
-*   Added a shared section to `config/secrets.yml` that will be loaded for all environments.
+*   Add app concern and test keepfiles to generated engine plugins.
 
-    *DHH*
+    *Gannon McGibbon*
 
-Please check [5-0-stable](https://github.com/rails/rails/blob/5-0-stable/railties/CHANGELOG.md) for previous changes.
+*   Stop generating a license for in-app plugins.
+
+    *Gannon McGibbon*
+
+*   `rails app:update` no longer prompts you to overwrite files that are generally modified in the
+    course of developing a Rails app. See [#41083](https://github.com/rails/rails/pull/41083) for
+    the full list of changes.
+
+    *Alex Ghiculescu*
+
+*   Change default branch for new Rails projects and plugins to `main`.
+
+    *Prateek Choudhary*
+
+*   The new method `Rails.benchmark` gives you a quick way to measure and log the execution time taken by a block:
+
+        def test_expensive_stuff
+          Rails.benchmark("test_expensive_stuff") { ... }
+        end
+
+    This functionality was available in some contexts only before.
+
+    *Simon Perepelitsa*
+
+*   Applications generated with `--skip-sprockets` no longer get `app/assets/config/manifest.js` and `app/assets/stylesheets/application.css`.
+
+    *Cindy Gao*
+
+*   Add support for stylesheets and ERB views to `rails stats`.
+
+    *Joel Hawksley*
+
+*   Allow appended root routes to take precedence over internal welcome controller.
+
+    *Gannon McGibbon*
+
+
+Please check [6-1-stable](https://github.com/rails/rails/blob/6-1-stable/railties/CHANGELOG.md) for previous changes.

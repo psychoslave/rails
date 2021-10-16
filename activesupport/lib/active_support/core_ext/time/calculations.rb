@@ -1,9 +1,12 @@
+# frozen_string_literal: true
+
 require "active_support/duration"
 require "active_support/core_ext/time/conversions"
 require "active_support/time_with_zone"
 require "active_support/core_ext/time/zones"
 require "active_support/core_ext/date_and_time/calculations"
 require "active_support/core_ext/date/calculations"
+require "active_support/core_ext/module/remove_method"
 
 class Time
   include DateAndTime::Calculations
@@ -39,13 +42,15 @@ class Time
 
     # Layers additional behavior on Time.at so that ActiveSupport::TimeWithZone and DateTime
     # instances can be used when called with a single argument
-    def at_with_coercion(*args)
-      return at_without_coercion(*args) if args.size != 1
+    def at_with_coercion(*args, **kwargs)
+      return at_without_coercion(*args, **kwargs) if args.size != 1 || !kwargs.empty?
 
       # Time.at can be called with a time or numerical value
       time_or_number = args.first
 
-      if time_or_number.is_a?(ActiveSupport::TimeWithZone) || time_or_number.is_a?(DateTime)
+      if time_or_number.is_a?(ActiveSupport::TimeWithZone)
+        at_without_coercion(time_or_number.to_r).getlocal
+      elsif time_or_number.is_a?(DateTime)
         at_without_coercion(time_or_number.to_f).getlocal
       else
         at_without_coercion(time_or_number)
@@ -53,6 +58,29 @@ class Time
     end
     alias_method :at_without_coercion, :at
     alias_method :at, :at_with_coercion
+
+    # Creates a +Time+ instance from an RFC 3339 string.
+    #
+    #   Time.rfc3339('1999-12-31T14:00:00-10:00') # => 2000-01-01 00:00:00 -1000
+    #
+    # If the time or offset components are missing then an +ArgumentError+ will be raised.
+    #
+    #   Time.rfc3339('1999-12-31') # => ArgumentError: invalid date
+    def rfc3339(str)
+      parts = Date._rfc3339(str)
+
+      raise ArgumentError, "invalid date" if parts.empty?
+
+      Time.new(
+        parts.fetch(:year),
+        parts.fetch(:mon),
+        parts.fetch(:mday),
+        parts.fetch(:hour),
+        parts.fetch(:min),
+        parts.fetch(:sec) + parts.fetch(:sec_fraction, 0),
+        parts.fetch(:offset)
+      )
+    end
   end
 
   # Returns the number of seconds since 00:00:00.
@@ -80,25 +108,41 @@ class Time
     subsec
   end
 
+  unless Time.method_defined?(:floor)
+    def floor(precision = 0)
+      change(nsec: 0) + subsec.floor(precision)
+    end
+  end
+
+  # Restricted Ruby version due to a bug in `Time#ceil`
+  # See https://bugs.ruby-lang.org/issues/17025 for more details
+  if RUBY_VERSION <= "2.8"
+    remove_possible_method :ceil
+    def ceil(precision = 0)
+      change(nsec: 0) + subsec.ceil(precision)
+    end
+  end
+
   # Returns a new Time where one or more of the elements have been changed according
   # to the +options+ parameter. The time options (<tt>:hour</tt>, <tt>:min</tt>,
   # <tt>:sec</tt>, <tt>:usec</tt>, <tt>:nsec</tt>) reset cascadingly, so if only
   # the hour is passed, then minute, sec, usec and nsec is set to 0. If the hour
-  # and minute is passed, then sec, usec and nsec is set to 0. The +options+
-  # parameter takes a hash with any of these keys: <tt>:year</tt>, <tt>:month</tt>,
-  # <tt>:day</tt>, <tt>:hour</tt>, <tt>:min</tt>, <tt>:sec</tt>, <tt>:usec</tt>
-  # <tt>:nsec</tt>. Pass either <tt>:usec</tt> or <tt>:nsec</tt>, not both.
+  # and minute is passed, then sec, usec and nsec is set to 0. The +options+ parameter
+  # takes a hash with any of these keys: <tt>:year</tt>, <tt>:month</tt>, <tt>:day</tt>,
+  # <tt>:hour</tt>, <tt>:min</tt>, <tt>:sec</tt>, <tt>:usec</tt>, <tt>:nsec</tt>,
+  # <tt>:offset</tt>. Pass either <tt>:usec</tt> or <tt>:nsec</tt>, not both.
   #
   #   Time.new(2012, 8, 29, 22, 35, 0).change(day: 1)              # => Time.new(2012, 8, 1, 22, 35, 0)
   #   Time.new(2012, 8, 29, 22, 35, 0).change(year: 1981, day: 1)  # => Time.new(1981, 8, 1, 22, 35, 0)
   #   Time.new(2012, 8, 29, 22, 35, 0).change(year: 1981, hour: 0) # => Time.new(1981, 8, 29, 0, 0, 0)
   def change(options)
-    new_year  = options.fetch(:year, year)
-    new_month = options.fetch(:month, month)
-    new_day   = options.fetch(:day, day)
-    new_hour  = options.fetch(:hour, hour)
-    new_min   = options.fetch(:min, options[:hour] ? 0 : min)
-    new_sec   = options.fetch(:sec, (options[:hour] || options[:min]) ? 0 : sec)
+    new_year   = options.fetch(:year, year)
+    new_month  = options.fetch(:month, month)
+    new_day    = options.fetch(:day, day)
+    new_hour   = options.fetch(:hour, hour)
+    new_min    = options.fetch(:min, options[:hour] ? 0 : min)
+    new_sec    = options.fetch(:sec, (options[:hour] || options[:min]) ? 0 : sec)
+    new_offset = options.fetch(:offset, nil)
 
     if new_nsec = options[:nsec]
       raise ArgumentError, "Can't change both :nsec and :usec at the same time: #{options.inspect}" if options[:usec]
@@ -107,13 +151,20 @@ class Time
       new_usec = options.fetch(:usec, (options[:hour] || options[:min] || options[:sec]) ? 0 : Rational(nsec, 1000))
     end
 
-    if utc?
-      ::Time.utc(new_year, new_month, new_day, new_hour, new_min, new_sec, new_usec)
+    raise ArgumentError, "argument out of range" if new_usec >= 1000000
+
+    new_sec += Rational(new_usec, 1000000)
+
+    if new_offset
+      ::Time.new(new_year, new_month, new_day, new_hour, new_min, new_sec, new_offset)
+    elsif utc?
+      ::Time.utc(new_year, new_month, new_day, new_hour, new_min, new_sec)
+    elsif zone&.respond_to?(:utc_to_local)
+      ::Time.new(new_year, new_month, new_day, new_hour, new_min, new_sec, zone)
     elsif zone
-      ::Time.local(new_year, new_month, new_day, new_hour, new_min, new_sec, new_usec)
+      ::Time.local(new_year, new_month, new_day, new_hour, new_min, new_sec)
     else
-      raise ArgumentError, "argument out of range" if new_usec >= 1000000
-      ::Time.new(new_year, new_month, new_day, new_hour, new_min, new_sec + (new_usec.to_r / 1000000), utc_offset)
+      ::Time.new(new_year, new_month, new_day, new_hour, new_min, new_sec, utc_offset)
     end
   end
 
@@ -139,8 +190,7 @@ class Time
       options[:hours] = options.fetch(:hours, 0) + 24 * partial_days
     end
 
-    d = to_date.advance(options)
-    d = d.gregorian if d.julian?
+    d = to_date.gregorian.advance(options)
     time_advanced_by_date = change(year: d.year, month: d.month, day: d.day)
     seconds_to_advance = \
       options.fetch(:seconds, 0) +
@@ -227,7 +277,7 @@ class Time
   end
   alias :at_end_of_minute :end_of_minute
 
-  def plus_with_duration(other) #:nodoc:
+  def plus_with_duration(other) # :nodoc:
     if ActiveSupport::Duration === other
       other.since(self)
     else
@@ -237,7 +287,7 @@ class Time
   alias_method :plus_without_duration, :+
   alias_method :+, :plus_with_duration
 
-  def minus_with_duration(other) #:nodoc:
+  def minus_with_duration(other) # :nodoc:
     if ActiveSupport::Duration === other
       other.until(self)
     else
@@ -281,4 +331,34 @@ class Time
   end
   alias_method :eql_without_coercion, :eql?
   alias_method :eql?, :eql_with_coercion
+
+  # Returns a new time the specified number of days ago.
+  def prev_day(days = 1)
+    advance(days: -days)
+  end
+
+  # Returns a new time the specified number of days in the future.
+  def next_day(days = 1)
+    advance(days: days)
+  end
+
+  # Returns a new time the specified number of months ago.
+  def prev_month(months = 1)
+    advance(months: -months)
+  end
+
+  # Returns a new time the specified number of months in the future.
+  def next_month(months = 1)
+    advance(months: months)
+  end
+
+  # Returns a new time the specified number of years ago.
+  def prev_year(years = 1)
+    advance(years: -years)
+  end
+
+  # Returns a new time the specified number of years in the future.
+  def next_year(years = 1)
+    advance(years: years)
+  end
 end

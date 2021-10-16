@@ -1,19 +1,15 @@
+# frozen_string_literal: true
+
 module ActiveRecord
   module ConnectionAdapters # :nodoc:
     module DatabaseLimits
+      def max_identifier_length # :nodoc:
+        64
+      end
+
       # Returns the maximum length of a table alias.
       def table_alias_length
-        255
-      end
-
-      # Returns the maximum length of a column name.
-      def column_name_length
-        64
-      end
-
-      # Returns the maximum length of a table name.
-      def table_name_length
-        64
+        max_identifier_length
       end
 
       # Returns the maximum allowed length for an index name. This
@@ -24,25 +20,11 @@ module ActiveRecord
       def allowed_index_name_length
         index_name_length
       end
+      deprecate :allowed_index_name_length
 
       # Returns the maximum length of an index name.
       def index_name_length
-        64
-      end
-
-      # Returns the maximum number of columns per table.
-      def columns_per_table
-        1024
-      end
-
-      # Returns the maximum number of indexes per table.
-      def indexes_per_table
-        16
-      end
-
-      # Returns the maximum number of columns in a multicolumn index.
-      def columns_per_multicolumn_index
-        16
+        max_identifier_length
       end
 
       # Returns the maximum number of elements in an IN (x,y,z) clause.
@@ -50,16 +32,12 @@ module ActiveRecord
       def in_clause_length
         nil
       end
+      deprecate :in_clause_length
 
-      # Returns the maximum length of an SQL query.
-      def sql_query_length
-        1048575
-      end
-
-      # Returns maximum number of joins in a single query.
-      def joins_per_query
-        256
-      end
+      private
+        def bind_params_length
+          65535
+        end
     end
   end
 end
